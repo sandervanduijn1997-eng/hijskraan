@@ -24,7 +24,7 @@ export const CHAPTER_1: MissionDef[] = [
     hint: 'Gebruik Shift voor precisiebediening. Laat de container pas zakken als hij stil hangt boven het vak.',
     learningGoal: 'Gecontroleerde beweging.', difficulty: 1, craneOptions: ['at60'], environment: 'trainingYard', timeOfDay: 'day', weather: 'clear',
     crane: { x: 0, boomAngleDeg: 50, boomLength: 14, ropeLength: 6, outriggersDeployed: true, counterweightIndex: 2 },
-    loads: [{ id: 'c1', type: 'siteContainer', x: 7.0, y: 0 }],
+    loads: [{ id: 'c1', type: 'siteContainer', x: 8.0, y: 0 }],
     zones: [zone('z1', 'Containervak', 14, 0, 0.2)],
     obstacles: [
       box('w1', 'wall', 12.0, 0, 0.25, 2.0, { onHit: 'fail', label: 'keerwand', style: 'concrete' }),
@@ -137,7 +137,7 @@ export const CHAPTER_2: MissionDef[] = [
     id: 'm08', number: 8, chapter: 2, title: 'Airco op het dak',
     briefing: 'Hijs de airco-unit van 4,2 ton naar het dak. De gevel en de dakrand mogen niet geraakt worden — de unit is kwetsbaar.',
     hint: 'Hoog genoeg hijsen vóór je naar het dak zwenkt. Kijk naar de werkstraal in de HUD: een zware unit vraagt een korte straal.',
-    learningGoal: 'Hoogte, straal en kwetsbare last.', difficulty: 3, craneOptions: ['at60', 'at500'], environment: 'cityCenter', timeOfDay: 'day', weather: 'clear',
+    learningGoal: 'Hoogte, straal en kwetsbare last.', difficulty: 3, craneOptions: ['at60'], environment: 'cityCenter', timeOfDay: 'day', weather: 'clear',
     crane: { x: 0, boomAngleDeg: 60, boomLength: 20, ropeLength: 10, outriggersDeployed: true, counterweightIndex: 2 },
     loads: [{ id: 'h1', type: 'hvac', x: 8.6, y: 0 }],
     zones: [zone('z1', 'Dakopstelling', 17, 14, 0.5)],

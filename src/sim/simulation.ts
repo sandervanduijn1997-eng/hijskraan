@@ -124,8 +124,16 @@ export class Simulation {
   readonly hookW: number;
   time = 0;
   wind: WindSample = { x: 0, z: 0, speed: 0 };
+  /** Kabelkracht, gefilterd voor weergave en beoordeling (τ = 0,25 s). */
   tensionF = 0;
+  /** Snelle kabelkracht voor de lastmomentbegrenzer (τ = 0,04 s). */
+  tensionFast = 0;
+  /** Belasting voor HUD, waarschuwingen en score. */
   loadPct = 0;
+  /** Belasting zoals de lastmomentbegrenzer hem gebruikt om bewegingen te blokkeren. */
+  lmiPct = 0;
+  /** LMI-afschakeling blijft actief tot de belasting duidelijk onder de grens zakt (hysterese). */
+  lmiLatched = false;
   capacityT = 0;
   stability: StabilityResult | null = null;
   support: SupportState;
@@ -168,6 +176,8 @@ export class Simulation {
     const params = defaultPhysicsParams();
     params.gravity = opt.gravity ?? GRAVITY;
     params.swayDamping = this.difficulty.swayDamping + this.spec.effects.extraSwayDamping;
+    // ca. 15 cm rek (kabel + giekdoorbuiging) bij de nominale capaciteit van de kraan
+    params.ropeCompliance = 0.15 / (this.spec.gb.maxCapacityT * 1000 * GRAVITY);
     this.world = new PhysicsWorld(params);
     this.missionColliders = buildColliders(opt.mission.obstacles);
     this.colliders = this.missionColliders;
@@ -408,7 +418,7 @@ export class Simulation {
       colliders: this.colliders,
       ground: this.mission.ground ?? [],
       groundFallback: this.mission.groundFallback,
-      loadPercent: this.loadPct,
+      loadPercent: this.lmiLatched ? Math.max(100, this.loadPct, this.lmiPct) : Math.max(this.loadPct, this.lmiPct),
       loadAttached: this.attached !== null,
       hookPos,
       ropeStretch: this.rope.stretch,
@@ -431,10 +441,15 @@ export class Simulation {
     // meten: kabelkracht, belasting, stabiliteit
     const k = 1 - Math.exp(-dt / 0.25);
     this.tensionF += (this.rope.tension - this.tensionF) * k;
+    this.tensionFast += (this.rope.tension - this.tensionFast) * (1 - Math.exp(-dt / 0.04));
     this.support = supportState(this.spec, this.crane);
     this.capacityT = allowedCapacityT(this.spec, this.crane);
     const loadT = this.tensionF / GRAVITY / 1000;
     this.loadPct = Math.min(999, loadPercent(loadT, this.capacityT));
+    this.lmiPct = Math.min(999, loadPercent(Math.max(this.tensionFast, this.rope.tension) / GRAVITY / 1000, this.capacityT));
+    if (!this.attached) this.lmiLatched = false;
+    else if (this.lmiPct >= 100 || this.loadPct >= 100) this.lmiLatched = true;
+    else if (this.loadPct < 95 && this.lmiPct < 95) this.lmiLatched = false;
     this.computeStabilityModel();
     updateTilt(this.crane, this.stability?.tippingRatio ?? 0, dt, this.difficulty.tipping && !this.spec.gb.anchored);
 
@@ -576,7 +591,7 @@ export class Simulation {
     const lifted = this.loadLifted();
     const req = this.mission.requirements;
     if (this.crane.tilt > 0.2 * DEG || this.crane.tipped) W.raise('tipping', 'critical', 'KRAAN KANTELT — last direct laten zakken!');
-    if (this.attached && this.loadPct >= 100) W.raise('overload', 'critical', `Last te zwaar: ${Math.round(this.loadPct)} % — lastmomentbegrenzer blokkeert`);
+    if (this.attached && (this.loadPct >= 100 || this.lmiLatched)) W.raise('overload', 'critical', `Last te zwaar: ${Math.round(Math.max(this.loadPct, this.lmiPct))} % — lastmomentbegrenzer blokkeert`);
     else if (this.attached && this.loadPct >= 90) W.raise('highLoad', 'caution', `Hoge belasting: ${Math.round(this.loadPct)} %`);
     if (this.stability && this.stability.tippingRatio > 0.85 && this.attached) W.raise('stability', 'critical', `Stabiliteitsmarge kritiek (${Math.round((1 - this.stability.tippingRatio) * 100)} %)`);
     const needsOutriggers = gb.outriggerCount > 0 && gb.setupType !== 'selfErect' && (!gb.liftOnTires || req.outriggers);

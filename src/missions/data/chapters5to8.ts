@@ -31,7 +31,7 @@ export const CHAPTER_5: MissionDef[] = [
     briefing: 'Plaats de bouwmodule in de bouwput. Een groot deel van het terrein is opgespoten zand. Kies zelf een stabiele opstelplaats en zet de stempels veilig uit.',
     hint: 'De HUD toont de ondergrond en de ondergrondfactor onder je stempels. Onder 0,85 krijg je een veiligheidsovertreding.',
     learningGoal: 'Opstelplaats en draagkracht beoordelen.', difficulty: 4, craneOptions: ['rt80'], environment: 'roughTerrain', timeOfDay: 'overcast', weather: 'cloudy',
-    crane: { x: -12, boomAngleDeg: 10, boomLength: 11, ropeLength: 3, outriggersDeployed: false, counterweightIndex: 2 },
+    crane: { x: -12, boomAngleDeg: 45, boomLength: 11, ropeLength: 3, outriggersDeployed: false, counterweightIndex: 2 },
     loads: [{ id: 'bm', type: 'buildingModule', x: -0.5, y: 0 }],
     zones: [zone('z1', 'Bouwput', 27, 0, 0.4)],
     obstacles: [],
@@ -272,7 +272,7 @@ export const CHAPTER_7: MissionDef[] = [
     briefing: 'Een aandrijfeenheid is uitgevallen in een afgeschermde machinenis. Til hem door de nauwe dakopening en lever hem veilig af in de werkplaats achter je.',
     hint: 'Recht omhoog tillen — de opening is maar 20 cm breder dan de eenheid. Daarna zwenken of rijden naar de werkplaats.',
     learningGoal: 'Uithalen uit een beperkte ruimte.', difficulty: 5, craneOptions: ['cd15'], environment: 'factory', timeOfDay: 'night', weather: 'clear',
-    crane: { x: 8, boomAngleDeg: 40, boomLength: 8, ropeLength: 3 },
+    crane: { x: 6, boomAngleDeg: 40, boomLength: 8, ropeLength: 3 },
     loads: [{ id: 'du', type: 'driveUnit', x: 16.5, y: 0 }],
     zones: [zone('z1', 'Werkplaats', -9, 0, 0.5)],
     obstacles: [

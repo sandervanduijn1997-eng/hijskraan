@@ -467,8 +467,8 @@ export class App {
     if (R !== undefined) {
       let best = Infinity;
       chart.radii.forEach((r, i) => {
-        if (r >= R - 0.01 && r - R < best) {
-          best = r - R;
+        if (Math.abs(r - R) < best) {
+          best = Math.abs(r - R);
           colHl = i;
         }
       });

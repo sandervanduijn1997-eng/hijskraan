@@ -133,6 +133,13 @@ export function validateMission(m: MissionDef): MissionValidation {
     const z = l.z ?? 0;
     const hit = overlaps(l.x - t.width / 2, l.x + t.width / 2, l.y, l.y + t.height, z - t.depth / 2, z + t.depth / 2, colliders);
     if (hit) err(`Last ${l.id} overlapt bij de start met ${hit.id}`);
+    for (const cid of m.craneOptions) {
+      const cfg = CRANES[cid];
+      const half = cfg.visual.carrierLength / 2;
+      const onDeck = Math.abs(cfg.visual.carrierHeight - l.y) < 0.05;
+      if (!onDeck && l.x + t.width / 2 > m.crane.x - half && l.x - t.width / 2 < m.crane.x + half && l.y < cfg.visual.carrierHeight && Math.abs(z) - t.depth / 2 < 1.3)
+        err(`Last ${l.id} overlapt bij de start met de onderwagen van ${cid}`);
+    }
     // landbaar dek van de eigen kraan telt ook als ondergrond
     const ownDeck = m.craneOptions.some((cid) => {
       const cfg = CRANES[cid];

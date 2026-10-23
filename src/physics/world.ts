@@ -15,8 +15,10 @@ export interface PhysicsParams {
   swayDamping: number;
   linearDamping: number;
   angularDamping: number;
-  /** Elasticiteit van kabel + giek (m/N). 0 = inelastisch: een strak trekkende kabel neemt de valsnelheid op zonder terug te veren. */
+  /** Elasticiteit van kabel + giek (m/N): de last wordt geleidelijk overgenomen bij het heffen. */
   ropeCompliance: number;
+  /** Demping van de kabelrek (1/s): voorkomt dat de elastische kabel als een elastiek terugveert. */
+  ropeDamping: number;
   friction: FrictionParams;
 }
 
@@ -26,6 +28,7 @@ export const defaultPhysicsParams = (): PhysicsParams => ({
   linearDamping: 0.01,
   angularDamping: 0.25,
   ropeCompliance: 0,
+  ropeDamping: 40,
   friction: { staticMu: 0.65, dynamicMu: 0.45 },
 });
 
@@ -150,6 +153,25 @@ export class PhysicsWorld {
         const angD = cb.touching.size > 0 ? p.angularDamping * 8 : p.angularDamping;
         b.angVel *= Math.max(0, 1 - angD * h);
         if (cb === rb) {
+          // demping van de kabelrek langs de kabelrichting (alleen bij strakke kabel)
+          if (p.ropeCompliance > 0) {
+            const a = apexWorld(b);
+            const dx = a.x - tip.x;
+            const dy = a.y - tip.y;
+            const dz = a.z - tip.z;
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const Ls = lengthStart + (rope.length - lengthStart) * f;
+            if (d >= Ls - 1e-4 && d > 1e-6) {
+              const nx = dx / d;
+              const ny = dy / d;
+              const nz = dz / d;
+              const vr = (b.vel.x - tipVx) * nx + (b.vel.y - (tipEnd.y - tipStart.y) / dt) * ny + (b.vel.z - tipVz) * nz;
+              const k = Math.min(1, p.ropeDamping * h);
+              b.vel.x -= nx * vr * k;
+              b.vel.y -= ny * vr * k;
+              b.vel.z -= nz * vr * k;
+            }
+          }
           // slingerdemping relatief t.o.v. de beweging van het ophangpunt
           const k = Math.max(0, 1 - p.swayDamping * h);
           b.vel.x = tipVx + (b.vel.x - tipVx) * k;

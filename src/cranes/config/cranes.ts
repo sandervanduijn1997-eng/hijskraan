@@ -69,7 +69,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 32000, rentPerMission: 1400, maintenancePerMission: 450, requiredLicense: 'zwaar' },
     upgrades: ['hoistSpeed', 'counterweightPlus', 'boomExtension', 'stabilityMonitor', 'efficientEngine', 'fastSetup', 'advancedWarnings', 'groundMats'],
-    suitableMissions: [8, 18, 26, 27, 28, 29, 30, 31, 32, 38, 39, 40],
+    suitableMissions: [18, 26, 27, 28, 29, 30, 31, 32, 38, 39, 40],
   },
 
   at60: {
@@ -130,7 +130,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 6500, rentPerMission: 180, maintenancePerMission: 60, requiredLicense: null },
     upgrades: ['hoistSpeed', 'precisionControls', 'counterweightPlus', 'boomExtension', 'stabilityMonitor', 'efficientEngine', 'fastSetup', 'advancedWarnings'],
-    suitableMissions: [1, 2, 3, 4, 5, 7, 8, 18, 19, 31],
+    suitableMissions: [1, 2, 3, 4, 5, 7, 8, 19],
   },
 
   rt80: {
