@@ -53,7 +53,7 @@ export function upgradeEffects(installed: readonly UpgradeId[]): UpgradeEffects 
     slewSpeed: has('slewSpeed') ? 1.2 : 1,
     trolleySpeed: has('trolleySpeed') ? 1.25 : 1,
     precisionFactor: has('precisionControls') ? 0.15 : 0.25,
-    rampFactor: has('precisionControls') ? 0.7 : 1,
+    rampFactor: has('precisionControls') ? 0.85 : 1,
     extraCounterweight: has('counterweightPlus'),
     boomExtension: has('boomExtension'),
     stabilityMonitor: has('stabilityMonitor'),

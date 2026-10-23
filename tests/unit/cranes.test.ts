@@ -115,7 +115,10 @@ describe('besturing', () => {
     const auto = { outriggerAuto: 'none' as const };
     updateCrane(spec, s, { ...emptyInput(), slew: 1 }, ctx(), auto);
     expect(Math.abs(s.vel.slew)).toBeLessThan(spec.gb.slewSpeedDeg * DEG * 0.1);
-    for (let i = 0; i < 90; i++) updateCrane(spec, s, { ...emptyInput(), slew: 1 }, ctx(), auto);
+    for (let i = 0; i < 60; i++) updateCrane(spec, s, { ...emptyInput(), slew: 1 }, ctx(), auto);
+    // na 1 s nog niet op volle snelheid: zwenken trekt rustig op
+    expect(s.vel.slew).toBeLessThan(spec.gb.slewSpeedDeg * DEG * 0.6);
+    for (let i = 0; i < 60 * 5; i++) updateCrane(spec, s, { ...emptyInput(), slew: 1 }, ctx(), auto);
     expect(s.vel.slew).toBeCloseTo(spec.gb.slewSpeedDeg * DEG, 4);
   });
 
@@ -123,7 +126,7 @@ describe('besturing', () => {
     const spec = resolveCrane(getCrane('at60'));
     const s = createCraneState(spec, { x: 0, outriggersDeployed: true });
     const auto = { outriggerAuto: 'none' as const };
-    for (let i = 0; i < 120; i++) updateCrane(spec, s, { ...emptyInput(), slew: 1, precision: true }, ctx(), auto);
+    for (let i = 0; i < 60 * 6; i++) updateCrane(spec, s, { ...emptyInput(), slew: 1, precision: true }, ctx(), auto);
     expect(s.vel.slew).toBeCloseTo(spec.gb.slewSpeedDeg * DEG * 0.25, 4);
   });
 

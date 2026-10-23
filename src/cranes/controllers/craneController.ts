@@ -42,7 +42,29 @@ export interface ControlResult {
   outriggerObstacle: boolean;
 }
 
-const RAMP_TIME = 0.55;
+/**
+ * Aanlooptijd (s) tot volle snelheid per as: [kleine kraan, zware kraan].
+ * Echte kranen versnellen rustig; vooral zwenken met een lange giek geeft anders onrealistisch veel slinger.
+ */
+const RAMP_TIMES: Record<Axis, [number, number]> = {
+  slew: [2.5, 5.5],
+  luff: [1.4, 3.0],
+  tele: [1.0, 2.0],
+  hoist: [0.7, 1.4],
+  trolley: [2.0, 3.0],
+  knuckle: [0.9, 1.4],
+  knuckleTele: [0.8, 1.2],
+  drive: [2.0, 4.5],
+};
+/** Afremmen gaat iets sneller dan optrekken (hydrauliek sluit), maar nooit abrupt. */
+const BRAKE_FACTOR = 1.3;
+
+/** Aanlooptijd voor deze kraan: schaalt logaritmisch met de capaciteit (1 t → klein, 600 t → zwaar). */
+export function rampTime(spec: ResolvedCrane, axis: Axis): number {
+  const [lo, hi] = RAMP_TIMES[axis];
+  const size = clamp(Math.log10(Math.max(1, spec.gb.maxCapacityT)) / Math.log10(600), 0, 1);
+  return (lo + (hi - lo) * size) * (2 - spec.effects.rampFactor);
+}
 
 function axisApplies(spec: ResolvedCrane, axis: Axis): boolean {
   const k = spec.cfg.kind;
@@ -313,7 +335,6 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
   const lmiActive = ctx.loadAttached && ctx.loadPercent >= 100;
   const snagged = ctx.ropeStretch > 0.25;
   const precision = input.precision ? spec.effects.precisionFactor : 1;
-  const rampT = RAMP_TIME * (2 - spec.effects.rampFactor);
   const sup = supportState(spec, s);
   const commands: Record<Axis, number> = {
     luff: input.luff,
@@ -374,9 +395,9 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
       cmd = 0;
     }
     const target = cmd * maxV;
-    const accel = axisMaxSpeed(spec, axis) / rampT;
+    const accel = axisMaxSpeed(spec, axis) / rampTime(spec, axis);
     // bij nul-commando sneller afremmen (hydrauliek sluit), maar niet abrupt
-    const rate = target === 0 ? accel * 1.6 : accel;
+    const rate = target === 0 || Math.sign(target) !== Math.sign(s.vel[axis]) ? accel * BRAKE_FACTOR : accel;
     s.vel[axis] = approach(s.vel[axis], target, rate * dt);
     if (res.blocked[axis] === 'lmi' || res.blocked[axis] === 'snag') {
       // LMI schakelt direct af in de gevaarlijke richting

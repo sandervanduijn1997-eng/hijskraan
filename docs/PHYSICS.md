@@ -34,6 +34,12 @@ Positie (3D), hoek (in het xy-vlak), massa en traagheidsmoment `I = m(w²+h²)/1
 
 Volgt volledig uit de fysica (geen animatie): traagheid, versnellen/stoppen van giek/loopkat, draaien (de tip beweegt dan ook in `z`), kabellengte (`T = 2π√(L/g)`, getest), massa en wind. Demping per moeilijkheidsgraad (`swayDamping`: oefenen 0,45, normaal 0,08, realistisch 0,02 /s) werkt alleen op de beweging **relatief** t.o.v. het ophangpunt. De HUD toont slingerhoek en verwachte richting.
 
+## Aandrijving: optrekken en afremmen
+
+Elke as trekt geleidelijk op tot volle snelheid, met een aanlooptijd die logaritmisch meeschaalt met de capaciteit van de kraan (kleine kraan → zware kraan): zwenken 2,5–5,5 s, giek op/neer 1,4–3 s, telescoop 1–2 s, hijsen 0,7–1,4 s, loopkat 2–3 s, rijden 2–4,5 s. Afremmen gaat 1,3× sneller. Draaisnelheden zijn realistische spelwaarden (torenkraan 4,5°/s, heavy-lift 2,5°/s).
+
+Dit is bepalend voor het slingergedrag: de slingerhoek bij optrekken is ongeveer `atan(a/g)`. In v0.1.0 was de aanlooptijd 0,55 s voor alle assen, wat bij zwenken ~4 m/s² gaf en tot 26° slinger. Nu blijft volle-snelheid-zwenken en loslaten onder ca. 5° (regressietest in `tests/integration/swing.test.ts`).
+
 ## Kinematica (`cranes/models/kinematics.ts`)
 
 - **Telescoop/vakwerk**: `tip_u = pivot_u + L·cos θ`, `tip_y = pivot_h + L·sin θ`; optionele hulpgiek met offsethoek.
