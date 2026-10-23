@@ -48,6 +48,10 @@ Dit is bepalend voor het slingergedrag: de slingerhoek bij optrekken is ongeveer
 - Draaien: wereld `x = draaias + u·cos φ`, `z = u·sin φ`.
 - Kanteling roteert de hele kraan om de voorste kantellijn.
 
+### Diepte-positie en torenmontage
+
+Elke kraan heeft naast `baseX` een `baseZ`; de onderwagen blijft evenwijdig aan x. Tip, segmenten, stempels en eigen botsingsvlakken worden met `baseZ` verschoven, zodat een hulpkraan naast een torenkraan kan staan. Tijdens de montage is de toren in aanbouw een set botsingsobjecten (`towerStructureColliders`): mast en draaikrans zijn landbaar (daar zetten mastsecties en torenkop op), de tegengiek is landbaar voor de ballast, de giek niet. Delen met `hold` tellen als gemonteerd als ze binnen x/y/z- en hoektolerantie aan een belaste kabel stil hangen (snelheid < 0,12 m/s). Lasten roteren alleen in het xy-vlak; dat een giek van 58 m niet om de verticale as gaat draaien, staat voor de stuurlijnen (taglines) van de monteurs.
+
 ## Botsingen
 
 - Obstakels: AABB's in xy met een echt z-bereik (diepte per soort, zie `DEPTH_BY_KIND` in `missions/runtime/buildWorld.ts`; bv. gebouw 16 m, muur 6 m, kolom 1,2 m). Lasten: georiënteerde dozen.

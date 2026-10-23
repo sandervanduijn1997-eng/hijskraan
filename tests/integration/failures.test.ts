@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { getMission } from '../../src/missions/data/index';
 import { practiceMission } from '../../src/missions/data/challenges';
-import { Simulation } from '../../src/sim/simulation';
+import { ERECTION_MOMENT_LIMIT_TM, Simulation } from '../../src/sim/simulation';
+import { DEG } from '../../src/utils/math';
 import { DIFFICULTIES } from '../../src/sim/difficulty';
 import { emptyInput } from '../../src/cranes/controllers/craneInput';
 import type { MissionDef } from '../../src/missions/data/types';
@@ -110,34 +111,110 @@ describe('mislukkingen en veiligheidsgrenzen', () => {
   });
 });
 
-describe('torenkraan volledig opbouwen', () => {
-  it('missie 12: eerst fundering, mastsecties, draaikrans, tegengiek, giek en ballast; daarna pas bedienen', () => {
+describe('torenkraan monteren met een hulpkraan', () => {
+  const finishAssembly = (sim: Simulation) => {
+    // alle montagedelen als geplaatst markeren (de bot-test speelt ze echt)
+    const b = sim.assembly!.build;
+    Object.assign(b, { sections: 3, slewingUnit: true, towerHead: true, counterJib: true, jib: true, ballast: [{ x: 17.3, massT: 6 }, { x: 15.9, massT: 9 }, { x: 14.5, massT: 9 }] });
+    for (const t of sim.tasks) if (t.def.type === 'outriggers' || (t.def.type === 'deliver' && t.def.inOrder)) t.status = 'done';
+    for (const l of sim.loads) if (l.id.startsWith('tw-')) { l.status = 'consumed'; sim.world.removeBody(l.cb); }
+    const gb = sim.spec.gb;
+    Object.assign(sim.crane, { boomAngle: gb.boomAngleMinDeg * DEG, boomLength: gb.boomMin, ropeLength: gb.ropeMin });
+  };
+
+  it('missie 12 begint met de mobiele hulpkraan en een toren met alleen de voetsectie', () => {
     const sim = new Simulation({ mission: getMission('m12')! });
-    const towerH = sim.spec.gb.towerHeight!;
-    const mastTop = () => Math.max(...sim.geom.segments.filter((s) => s.kind === 'mast').map((s) => s.y1));
-    expect(sim.tasks[0].def.type).toBe('setup');
-    expect(sim.capacityT).toBe(0);
-    run(sim, 2, () => { const i = emptyInput(); i.trolley = 1; i.hoist = 1; return i; });
-    expect(sim.lastControl.blocked.trolley).toBe('setup');
-    const heights: number[] = [];
-    run(sim, 120, () => { heights.push(mastTop()); const i = emptyInput(); i.setupHold = true; return i; }, () => sim.crane.setupProgress >= 1);
-    // de mast groeit in stappen (secties) tot de volle hoogte
-    expect(heights[0]).toBeLessThan(towerH * 0.3);
-    expect(new Set(heights.map((h) => h.toFixed(1))).size).toBeGreaterThanOrEqual(8);
+    expect(sim.spec.cfg.id).toBe('at500');
+    expect(sim.missionSpec.cfg.id).toBe('tc160');
+    expect(sim.assisting).toBe(true);
+    expect(sim.tasks[0].def.type).toBe('outriggers');
+    expect(sim.assembly!.build.sections).toBe(1);
+    expect(sim.colliders.some((c) => c.id === 'tw-mast')).toBe(true);
+    expect(sim.colliders.some((c) => c.id === 'tw-jib')).toBe(false);
+    // de hulpkraan staat naast de toren in de diepte
+    expect(sim.crane.baseZ).toBeLessThan(-10);
+  });
+
+  it('vaste montagevolgorde: alleen het volgende deel is actief', () => {
+    const sim = new Simulation({ mission: getMission('m12')! });
+    sim.outriggerAuto.outriggerAuto = 'deploy';
+    run(sim, 60, () => emptyInput(), () => sim.tasks[0].status === 'done');
     sim.step(emptyInput());
-    expect(sim.tasks[0].status).toBe('done');
+    const active = sim.tasks.filter((t) => t.status === 'active');
+    expect(active).toHaveLength(1);
+    expect(active[0].def.type === 'deliver' && active[0].def.loadId).toBe('tw-m2');
+    const order = sim.tasks.filter((t) => t.def.type === 'deliver' && t.def.inOrder).map((t) => (t.def as { loadId: string }).loadId);
+    expect(order).toEqual(['tw-m2', 'tw-m3', 'tw-su', 'tw-th', 'tw-cj', 'tw-b1', 'tw-jb', 'tw-b2', 'tw-b3']);
+  });
+
+  it('ballastvolgorde: één blok vóór de giek houdt de toren binnen de momentgrens', () => {
+    const sim = new Simulation({ mission: getMission('m12')! });
+    const b = sim.assembly!.build;
+    const M = () => Math.abs(sim.towerMomentTm());
+    Object.assign(b, { sections: 3, slewingUnit: true, towerHead: true, counterJib: true });
+    const steps: number[] = [M()];
+    b.ballast.push({ x: 17.3, massT: 6 });
+    steps.push(M());
+    b.jib = true;
+    steps.push(M());
+    b.ballast.push({ x: 15.9, massT: 9 }, { x: 14.5, massT: 9 });
+    steps.push(M());
+    for (const m of steps) expect(m).toBeLessThan(ERECTION_MOMENT_LIMIT_TM);
+    expect(steps[3]).toBeLessThan(30); // in balans na de laatste ballast
+    // fout: giek zonder ballast, of alle ballast vóór de giek
+    b.ballast = [];
+    expect(M()).toBeGreaterThan(ERECTION_MOMENT_LIMIT_TM);
+    b.jib = false;
+    b.ballast = [{ x: 17.3, massT: 6 }, { x: 15.9, massT: 9 }, { x: 14.5, massT: 9 }];
+    expect(M()).toBeGreaterThan(ERECTION_MOMENT_LIMIT_TM);
+  });
+
+  it('na transportstand overstappen naar de torenkraan; die klimt met B naar werkhoogte', () => {
+    const sim = new Simulation({ mission: getMission('m12')! });
+    finishAssembly(sim);
+    const events: string[] = [];
+    run(sim, 3, () => emptyInput(), () => { events.push(...sim.drainEvents().map((e) => e.type)); return sim.spec.cfg.id === 'tc160'; });
+    events.push(...sim.drainEvents().map((e) => e.type));
+    expect(events).toContain('craneSwitch');
+    expect(sim.parked?.spec.cfg.id).toBe('at500');
+    expect(sim.colliders.some((c) => c.id === 'parked-carrier')).toBe(true);
+    expect(sim.colliders.some((c) => c.id.startsWith('tw-'))).toBe(false);
+    const mastTop = () => sim.geom.segments.find((s) => s.kind === 'mast')!.y1;
+    const towerH = sim.spec.gb.towerHeight!;
+    const h0 = mastTop();
+    expect(h0).toBeLessThan(towerH * 0.5);
+    // tijdens het klimmen geen kraanbewegingen
+    run(sim, 1, () => { const i = emptyInput(); i.trolley = 1; return i; });
+    expect(sim.lastControl.blocked.trolley).toBe('setup');
+    const hookY = sim.hookPoint().y;
+    run(sim, 120, () => { const i = emptyInput(); i.setupHold = true; return i; }, () => sim.crane.setupProgress >= 1);
     expect(mastTop()).toBeCloseTo(sim.spec.cfg.visual.carrierHeight + towerH, 3);
+    // de lier viert mee: de haak blijft ongeveer op dezelfde hoogte
+    expect(Math.abs(sim.hookPoint().y - hookY)).toBeLessThan(1.5);
+    sim.step(emptyInput());
     run(sim, 2, () => { const i = emptyInput(); i.trolley = 1; return i; });
     expect(sim.lastControl.blocked.trolley).toBeUndefined();
     expect(sim.capacityT).toBeGreaterThan(0);
   });
 
-  it('loslaten van B pauzeert de montage', () => {
+  it('loslaten van B pauzeert het klimmen', () => {
     const sim = new Simulation({ mission: getMission('m13')! });
+    finishAssembly(sim);
+    run(sim, 3, () => emptyInput(), () => sim.spec.cfg.id === 'tc160');
     run(sim, 10, () => { const i = emptyInput(); i.setupHold = true; return i; });
     const p = sim.crane.setupProgress;
     expect(p).toBeGreaterThan(0.1);
     run(sim, 5, () => emptyInput());
     expect(sim.crane.setupProgress).toBe(p);
   });
+});
+
+describe('torenkraanmontage gespeeld met besturingsinvoer', () => {
+  it('missie 12: hulpkraan monteert de toren, daarna klimt hij en levert de kubel af', async () => {
+    const { playMission } = await import('../helpers/missionBot');
+    const r = playMission(getMission('m12')!, DIFFICULTIES.practice, 1800);
+    expect(r.reason).toBe('');
+    expect(r.outcome).toBe('success');
+    expect(r.damage).toBeLessThan(5);
+  }, 60000);
 });

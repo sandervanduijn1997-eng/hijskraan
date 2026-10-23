@@ -40,6 +40,8 @@ export interface ControlResult {
   outriggerBlocked: boolean;
   /** Stempel raakt obstakel bij uitschuiven. */
   outriggerObstacle: boolean;
+  /** Klimmen geweigerd (last aan de haak). */
+  climbBlocked?: boolean;
 }
 
 /**
@@ -186,12 +188,12 @@ export function boomCollision(spec: ResolvedCrane, s: CraneState, g: CraneGeomet
 }
 
 /** Botst het onderstel bij rijden met een obstakel? */
-function carrierCollision(spec: ResolvedCrane, baseX: number, colliders: readonly Collider[]): Collider | null {
+function carrierCollision(spec: ResolvedCrane, baseX: number, baseZ: number, colliders: readonly Collider[]): Collider | null {
   const half = spec.cfg.visual.carrierLength / 2;
   const h = spec.cfg.visual.carrierHeight + 1.2;
   for (const c of colliders) {
     if (c.kind === 'crane') continue;
-    if (!rangesOverlap(-1.6, 1.6, c.minZ, c.maxZ)) continue;
+    if (!rangesOverlap(baseZ - 1.6, baseZ + 1.6, c.minZ, c.maxZ)) continue;
     if (c.minY > h) continue;
     if (baseX + half > c.minX && baseX - half < c.maxX) return c;
   }
@@ -207,7 +209,7 @@ export function outriggerPad(spec: ResolvedCrane, s: CraneState, i: number): { x
   const front = i < 2 ? 1 : -1;
   const side = i % 2 === 0 ? -1 : 1;
   const b = ret.b + (full.b - ret.b) * (s.outriggerBeam[i] ?? 0);
-  return { x: slewX + front * full.a, z: side * b };
+  return { x: slewX + front * full.a, z: s.baseZ + side * b };
 }
 
 function padBlocked(spec: ResolvedCrane, s: CraneState, i: number, colliders: readonly Collider[]): boolean {
@@ -241,7 +243,10 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
   // --- opbouwprocedure ---
   const setupDone = s.setupProgress >= 1;
   if (!setupDone && (gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly' || gb.setupType === 'towerAssembly')) {
-    if (input.setupHold) {
+    // een torenkraan klimt alleen zonder last aan de haak
+    const climbBlocked = gb.setupType === 'towerAssembly' && ctx.loadAttached;
+    if (input.setupHold && climbBlocked) res.climbBlocked = true;
+    else if (input.setupHold) {
       s.setupProgress = Math.min(1, s.setupProgress + dt / Math.max(1, gb.setupTime));
       s.engine = approach(s.engine, 0.6, dt * 2);
     }
@@ -417,7 +422,7 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
   // rijden: grenzen en obstakels
   if (s.baseX !== before.baseX) {
     const half = spec.cfg.visual.carrierLength / 2;
-    if (s.baseX - half < ctx.worldMinX || s.baseX + half > ctx.worldMaxX || carrierCollision(spec, s.baseX, ctx.colliders)) {
+    if (s.baseX - half < ctx.worldMinX || s.baseX + half > ctx.worldMaxX || carrierCollision(spec, s.baseX, s.baseZ, ctx.colliders)) {
       s.baseX = before.baseX;
       s.vel.drive = 0;
       res.blocked.drive = 'driveObstacle';

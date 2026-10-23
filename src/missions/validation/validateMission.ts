@@ -10,7 +10,7 @@ import type { Collider } from '../../physics/collision/colliders';
 import { groundFactorFor } from '../../physics/ground';
 import { DEG } from '../../utils/math';
 import { LOADS } from '../data/loads';
-import type { MissionDef } from '../data/types';
+import type { MissionDef, TaskDef } from '../data/types';
 import { buildColliders } from '../runtime/buildWorld';
 
 export interface ValidationIssue {
@@ -92,6 +92,72 @@ function statesAtRadius(spec: ResolvedCrane, base: CraneState, u: number, slew: 
   return out;
 }
 
+/** Montagehijsen van een torenkraan worden met de hulpkraan gedaan, niet met de missiekraan. */
+const isAssemblyTask = (t: TaskDef): boolean => t.type === 'deliver' && t.effect?.type === 'towerPart';
+
+export interface AssemblyLiftCheck {
+  label: string;
+  radius: number;
+  heightNeeded: number;
+  massT: number;
+  percent: number;
+  reachable: boolean;
+}
+
+/**
+ * Controleer of de hulpkraan elk montagedeel kan oppakken en op zijn plaats kan brengen
+ * (straal in 3D vanaf de draaias, benodigde haakhoogte, lastdiagram met volle stempels).
+ */
+export function validateAssembly(m: MissionDef): { issues: ValidationIssue[]; lifts: AssemblyLiftCheck[] } {
+  const issues: ValidationIssue[] = [];
+  const lifts: AssemblyLiftCheck[] = [];
+  const a = m.assembly;
+  if (!a) return { issues, lifts };
+  const spec = resolveCrane(CRANES[a.assistCrane], []);
+  const base = createCraneState(spec, { ...a.assist, outriggersDeployed: true, preassembled: true });
+  const slewX = base.baseX + spec.gb.slewOffsetX;
+  const slewZ = base.baseZ;
+  const hd = hookDims(spec);
+  const colliders = buildColliders(m.obstacles);
+  // onderwagen en stempels van de hulpkraan moeten vrij staan
+  const half = spec.cfg.visual.carrierLength / 2;
+  for (const c of colliders) {
+    if (c.minY < spec.cfg.visual.carrierHeight + 1.2 && c.minX < base.baseX + half && c.maxX > base.baseX - half && c.minZ < slewZ + 1.6 && c.maxZ > slewZ - 1.6) issues.push({ severity: 'error', message: `Hulpkraan staat in ${c.id}` });
+  }
+  for (const l of m.loads) {
+    const t = LOADS[l.type];
+    const z = l.z ?? 0;
+    if (l.x + t.width / 2 > base.baseX - half && l.x - t.width / 2 < base.baseX + half && Math.abs(z - slewZ) < 1.3 + t.depth / 2) issues.push({ severity: 'error', message: `Last ${l.id} staat op de plaats van de hulpkraan` });
+  }
+  for (const t of m.tasks) {
+    if (!isAssemblyTask(t) || t.type !== 'deliver') continue;
+    const ls = m.loads.find((l) => l.id === t.loadId)!;
+    const zn = m.zones.find((z) => z.id === t.zoneId)!;
+    const lt = LOADS[ls.type];
+    const above = lt.height + lt.slingHeight + hd.h + spec.gb.ropeMin + 0.3;
+    const massT = (lt.massKg + spec.gb.hookMassKg) / 1000;
+    for (const [label, x, z, y] of [
+      [`${ls.id} oppakken`, ls.x, ls.z ?? 0, ls.y],
+      [`${ls.id} monteren`, zn.x, zn.z ?? 0, zn.y],
+    ] as [string, number, number, number][]) {
+      const r = Math.hypot(x - slewX, z - slewZ);
+      const slew = Math.atan2(z - slewZ, x - slewX);
+      let best = Infinity;
+      let reach = false;
+      for (const st of statesAtRadius(spec, base, r, slew, { boomIdx: [0], jibIdx: [0] })) {
+        const g = computeGeometry(spec, st);
+        if (g.tipHeight < y + above) continue;
+        reach = true;
+        best = Math.min(best, (massT / Math.max(1e-6, allowedCapacityT(spec, st))) * 100);
+      }
+      lifts.push({ label, radius: r, heightNeeded: y + above, massT, percent: best, reachable: reach });
+      if (!reach) issues.push({ severity: 'error', message: `Montage: ${label} niet bereikbaar voor de hulpkraan (straal ${r.toFixed(1)} m, hoogte ${(y + above).toFixed(1)} m)` });
+      else if (best > 90) issues.push({ severity: 'error', message: `Montage: ${label} te zwaar voor de hulpkraan (${best.toFixed(0)} % op ${r.toFixed(1)} m)` });
+    }
+  }
+  return { issues, lifts };
+}
+
 export function validateMission(m: MissionDef): MissionValidation {
   const issues: ValidationIssue[] = [];
   const err = (message: string) => issues.push({ severity: 'error', message });
@@ -157,6 +223,8 @@ export function validateMission(m: MissionDef): MissionValidation {
   }
   for (const zn of m.zones) {
     const task = m.tasks.find((t) => t.type === 'deliver' && t.zoneId === zn.id);
+    // montageposities liggen op de torenkraan in aanbouw zelf
+    if (task && isAssemblyTask(task)) continue;
     const lt = task && task.type === 'deliver' ? LOADS[m.loads.find((l) => l.id === task.loadId)!.type] : null;
     const stacked = m.tasks.some((t) => t.type === 'deliver' && t.zoneId === zn.id) && m.zones.some((o) => o !== zn && Math.abs(o.x - zn.x) < 0.5 && o.y < zn.y);
     const ownDeck = m.craneOptions.some((cid) => Math.abs(CRANES[cid].visual.carrierHeight - zn.y) < 0.05);
@@ -176,7 +244,7 @@ export function validateMission(m: MissionDef): MissionValidation {
     const lifts: LiftPoint[] = [];
     let extraCw = 0;
     for (const t of m.tasks) {
-      if (t.type !== 'deliver') continue;
+      if (t.type !== 'deliver' || isAssemblyTask(t)) continue;
       const ls = m.loads.find((l) => l.id === t.loadId)!;
       const lt = LOADS[ls.type];
       const zn = m.zones.find((z) => z.id === t.zoneId)!;
@@ -325,6 +393,7 @@ export function validateMission(m: MissionDef): MissionValidation {
     }
     feasibility.push({ craneId: cid, feasible: reasons.length === 0, reasons, peakPercent: best.ok ? best.peak : Infinity, config: best.config });
   }
+  if (m.assembly) issues.push(...validateAssembly(m).issues);
   if (!feasibility[0]?.feasible) err(`Standaardkraan ${m.craneOptions[0]} kan de missie niet uitvoeren: ${feasibility[0]?.reasons.join('; ')}`);
   for (const f of feasibility.slice(1)) if (!f.feasible) warn(`Alternatieve kraan ${f.craneId} is ongeschikt: ${f.reasons.join('; ')}`);
   return { missionId: m.id, issues, feasibility };

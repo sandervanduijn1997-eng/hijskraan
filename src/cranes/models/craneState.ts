@@ -7,6 +7,8 @@ export const AXES: Axis[] = ['luff', 'slew', 'hoist', 'tele', 'trolley', 'knuckl
 /** Volledige, serialiseerbare toestand van een kraan. Hoeken in radialen, afstanden in meter. */
 export interface CraneState {
   baseX: number;
+  /** Diepte-positie (z) van de kraan; de onderwagen staat altijd evenwijdig aan x. */
+  baseZ: number;
   slew: number;
   boomAngle: number;
   boomLength: number;
@@ -38,6 +40,8 @@ export interface CraneState {
 
 export interface CraneStartConfig {
   x: number;
+  /** Diepte-positie (z), standaard 0. */
+  z?: number;
   slewDeg?: number;
   boomAngleDeg?: number;
   boomLength?: number;
@@ -70,6 +74,7 @@ export function createCraneState(spec: ResolvedCrane, start: CraneStartConfig): 
       : clamp(start.boomLength ?? gb.boomMin, gb.boomMin, gb.boomMax);
   return {
     baseX: start.x,
+    baseZ: start.z ?? 0,
     slew: (start.slewDeg ?? 0) * DEG,
     boomAngle: clamp((start.boomAngleDeg ?? 45) * DEG, gb.boomAngleMinDeg * DEG, gb.boomAngleMaxDeg * DEG),
     boomLength,

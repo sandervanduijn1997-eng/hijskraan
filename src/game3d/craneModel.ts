@@ -3,7 +3,8 @@ import { outriggerPad } from '../cranes/controllers/craneController';
 import type { ResolvedCrane } from '../cranes/models/craneSpec';
 import type { CraneState } from '../cranes/models/craneState';
 import type { CraneGeometry, Segment } from '../cranes/models/kinematics';
-import { TOWER_MAST_SECTIONS } from '../cranes/models/kinematics';
+import type { TowerBuild } from '../cranes/models/towerErection';
+import { TOWER_BALLAST_H, TOWER_BALLAST_W, TOWER_COUNTERJIB_H, TOWER_MAST_SECTIONS, TOWER_ROOT_OFFSET, TOWER_SLEW_UNIT_H } from '../cranes/models/towerErection';
 import { beamMesh, box, cylinder, mat, placeBetween, placeCylinderBetween, shadeHex, trussUnit, wheel } from './kit';
 
 export interface Livery {
@@ -47,7 +48,9 @@ export class CraneModel {
   private ballast: THREE.Mesh[] = [];
   private mastSections: THREE.Object3D[] = [];
   private trolley: THREE.Mesh | null = null;
-  private towerPeak: THREE.Mesh | null = null;
+  private towerPeak: THREE.Group | null = null;
+  private slewUnit: THREE.Group | null = null;
+  private climbCage: THREE.Group | null = null;
   private pendants: THREE.Line[] = [];
   private beacon: THREE.Mesh;
   private beaconLight: THREE.PointLight;
@@ -202,14 +205,26 @@ export class CraneModel {
       const H = gb.towerHeight ?? 30;
       const color = this.liv.boom;
       if (cfg.carrier === 'towerBase') {
-        // mast in secties (zichtbaar tijdens de montage)
-        const secH = H / TOWER_MAST_SECTIONS;
+        // mast in secties (zichtbaar tijdens montage en klimmen)
+        const secH = (H - TOWER_SLEW_UNIT_H) / TOWER_MAST_SECTIONS;
         for (let i = 0; i < TOWER_MAST_SECTIONS; i++) {
           const t = trussUnit(color, 3, 0.1, 0.05);
           placeBetween(t, { x: 0, y: h + i * secH, z: 0 }, { x: 0, y: h + (i + 1) * secH, z: 0 }, 1.6, 1.6);
           this.carrier.add(t);
           this.mastSections.push(t);
         }
+        // draaikrans met platform (draait mee met de giek)
+        const su = new THREE.Group();
+        su.add(box(2.4, TOWER_SLEW_UNIT_H * 0.35, 2.4, DARK, 0, -TOWER_SLEW_UNIT_H + TOWER_SLEW_UNIT_H * 0.175, 0), box(2.2, TOWER_SLEW_UNIT_H * 0.6, 2.2, color, 0, -TOWER_SLEW_UNIT_H * 0.35, 0));
+        s.add(su);
+        this.slewUnit = su;
+        // klimkooi rond de bovenste mastsectie (alleen tijdens het klimmen)
+        const cage = new THREE.Group();
+        const ct = trussUnit(0xd35400, 3, 0.09, 0.05);
+        placeBetween(ct, { x: 0, y: 0, z: 0 }, { x: 0, y: secH * 1.15, z: 0 }, 2.3, 2.3);
+        cage.add(ct);
+        this.carrier.add(cage);
+        this.climbCage = cage;
       }
       for (const kind of ['jib', 'counterJib', ...(cfg.carrier === 'selfErecting' ? ['mast'] : [])]) {
         const t = trussUnit(color, kind === 'mast' ? 10 : 14, 0.12, 0.05);
@@ -222,15 +237,32 @@ export class CraneModel {
       this.cab = cab;
       this.trolley = box(1.4, 0.6, 1.4, DARK);
       s.add(this.trolley);
-      this.towerPeak = beamMesh(color);
-      s.add(this.towerPeak);
+      // torenkop (A-bok): vier stijlen die naar de top samenkomen
+      const peakH = cfg.carrier === 'selfErecting' ? 3 : 7;
+      const peak = new THREE.Group();
+      if (cfg.carrier === 'selfErecting') {
+        const pm = beamMesh(color);
+        placeBetween(pm, { x: 0, y: 0, z: 0 }, { x: 0, y: peakH, z: 0 }, 0.5, 0.5);
+        peak.add(pm);
+      } else {
+        for (const sx of [-0.6, 0.6]) {
+          for (const sz of [-0.6, 0.6]) {
+            const leg = box(1, 1, 1, color);
+            placeBetween(leg, { x: sx, y: 0, z: sz }, { x: 0, y: peakH - 0.3, z: 0 }, 0.14, 0.14);
+            peak.add(leg);
+          }
+        }
+        peak.add(box(0.5, 0.6, 0.5, DARK, 0, peakH - 0.3, 0));
+      }
+      s.add(peak);
+      this.towerPeak = peak;
       for (let i = 0; i < 2; i++) {
         const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x1d1f22 }));
         s.add(l);
         this.pendants.push(l);
       }
-      for (let i = 0; i < (cfg.carrier === 'selfErecting' ? 2 : 4); i++) {
-        const b = box(1, 2, 1.6, 0x8c9096);
+      for (let i = 0; i < (cfg.carrier === 'selfErecting' ? 2 : 3); i++) {
+        const b = cfg.carrier === 'selfErecting' ? box(1, 2, 1.6, 0x8c9096) : box(TOWER_BALLAST_W, TOWER_BALLAST_H, 2.2, 0x8c9096);
         s.add(b);
         this.ballast.push(b);
       }
@@ -295,11 +327,12 @@ export class CraneModel {
 
   // ------------------------------------------------------------------ bijwerken
 
-  update(s: CraneState, g: CraneGeometry, time: number): void {
+  /** Werk het model bij. `build` = torenkraan in aanbouw (alleen de gemonteerde delen tonen). */
+  update(s: CraneState, g: CraneGeometry, time: number, build?: TowerBuild): void {
     const cfg = this.spec.cfg;
     const gb = this.spec.gb;
     const h = cfg.visual.carrierHeight;
-    this.carrier.position.set(s.baseX, 0, 0);
+    this.carrier.position.set(s.baseX, 0, s.baseZ);
     // kanteling om de kantellijn in de richting van de giek
     const dir = Math.cos(s.slew) >= 0 ? 1 : -1;
     this.tiltPivot.position.set(g.tiltPivotX, 0, 0);
@@ -314,13 +347,14 @@ export class CraneModel {
       const o = this.outriggers[i];
       const pad = outriggerPad(this.spec, s, i);
       const lx = pad.x - s.baseX;
+      const pz = pad.z - s.baseZ;
       const jack = s.outriggerJack[i] ?? 0;
-      const zIn = pad.z > 0 ? 1.1 : -1.1;
+      const zIn = pz > 0 ? 1.1 : -1.1;
       const beamY = cfg.carrier === 'selfErecting' ? 0.6 : 0.75 + lift;
-      placeBetween(o.beam, { x: lx, y: beamY, z: zIn }, { x: lx, y: beamY, z: pad.z + (pad.z > 0 ? 0.25 : -0.25) }, 0.4, 0.5);
+      placeBetween(o.beam, { x: lx, y: beamY, z: zIn }, { x: lx, y: beamY, z: pz + (pz > 0 ? 0.25 : -0.25) }, 0.4, 0.5);
       const padY = (1 - jack) * 0.45;
-      placeCylinderBetween(o.jack, { x: lx, y: padY + 0.1, z: pad.z }, { x: lx, y: beamY + 0.05, z: pad.z }, 0.12);
-      o.pad.position.set(lx, padY + 0.06, pad.z);
+      placeCylinderBetween(o.jack, { x: lx, y: padY + 0.1, z: pz }, { x: lx, y: beamY + 0.05, z: pz }, 0.12);
+      o.pad.position.set(lx, padY + 0.06, pz);
     }
     this.slew.rotation.y = -s.slew;
     this.sheave.position.set(g.tipU, g.tipY + 0.4, 0);
@@ -329,7 +363,7 @@ export class CraneModel {
     (this.beacon.material as THREE.MeshStandardMaterial).emissiveIntensity = blink ? 1.4 : 0.15;
     this.beaconLight.intensity = blink ? 6 : 0;
 
-    if (cfg.kind === 'tower') return this.updateTower(s, g);
+    if (cfg.kind === 'tower') return this.updateTower(s, g, build);
     if (cfg.kind === 'knuckle') return this.updateKnuckle(g);
 
     // contragewicht
@@ -393,7 +427,7 @@ export class CraneModel {
     if (a1 && a2) placeCylinderBetween(this.cylinders[1], { x: lerpN(a1.u0, a1.u1, 0.6), y: lerpN(a1.y0, a1.y1, 0.6) + 0.3, z: 0.3 }, { x: lerpN(a2.u0, a2.u1, 0.35), y: lerpN(a2.y0, a2.y1, 0.35) + 0.3, z: 0.3 }, 0.09);
   }
 
-  private updateTower(s: CraneState, g: CraneGeometry): void {
+  private updateTower(s: CraneState, g: CraneGeometry, build?: TowerBuild): void {
     const gb = this.spec.gb;
     const cfg = this.spec.cfg;
     const segs = g.segments;
@@ -402,47 +436,84 @@ export class CraneModel {
     const cj = segs.find((x) => x.kind === 'counterJib');
     const topY = mast.y1;
     const topU = mast.u1;
-    // mastsecties tonen tot de huidige hoogte
-    if (this.mastSections.length) {
-      const H = gb.towerHeight ?? 30;
-      const built = Math.round(((topY - mast.y0) / H) * TOWER_MAST_SECTIONS);
-      this.mastSections.forEach((m, i) => (m.visible = i < built));
+    const tower = cfg.carrier === 'towerBase';
+    const H = gb.towerHeight ?? 30;
+    const secH = (H - TOWER_SLEW_UNIT_H) / TOWER_MAST_SECTIONS;
+    // mastsecties: tijdens het klimmen staat de bovenkant in de klimkooi
+    const sectionsF = tower ? (build ? build.sections : (topY - TOWER_SLEW_UNIT_H - mast.y0) / secH) : 0;
+    const climbing = tower && !build && gb.setupType === 'towerAssembly' && s.setupProgress < 1;
+    if (this.mastSections.length) this.mastSections.forEach((m, i) => (m.visible = i < Math.floor(sectionsF + 1e-6)));
+    if (this.climbCage) {
+      this.climbCage.visible = climbing;
+      this.climbCage.position.set(0, topY - TOWER_SLEW_UNIT_H - secH * 1.15, 0);
+    }
+    const suOn = !build || build.slewingUnit;
+    const headOn = !build || build.towerHead;
+    const cjOn = !!cj && (!build || build.counterJib);
+    const jibOn = !!jib && (!build || build.jib);
+    if (this.slewUnit) {
+      this.slewUnit.visible = suOn;
+      this.slewUnit.position.set(topU, topY, 0);
     }
     const tm = this.trusses.get('mast');
     if (tm) placeSeg(tm, mast, 1.4);
     const tj = this.trusses.get('jib')!;
     const jibLen = jib ? Math.hypot(jib.u1 - jib.u0, jib.y1 - jib.y0) : 0;
-    tj.visible = jibLen > 0.3;
-    if (jib && tj.visible) placeSeg(tj, jib, 1.3);
+    tj.visible = jibOn && jibLen > 0.3;
+    // giek en tegengiek beginnen naast de draaikrans
+    const root = tower ? TOWER_ROOT_OFFSET : 0;
+    const along = (seg: { u0: number; y0: number; u1: number; y1: number }, d: number) => {
+      const L = Math.hypot(seg.u1 - seg.u0, seg.y1 - seg.y0) || 1;
+      return { u: seg.u0 + ((seg.u1 - seg.u0) * d) / L, y: seg.y0 + ((seg.y1 - seg.y0) * d) / L };
+    };
+    if (jib && tj.visible) {
+      const a = along(jib, root);
+      placeBetween(tj, { x: a.u, y: a.y, z: 0 }, { x: jib.u1, y: jib.y1, z: 0 }, 1.3, 1.3);
+    }
     const tc = this.trusses.get('counterJib')!;
-    tc.visible = !!cj;
-    if (cj) placeSeg(tc, cj, 1.1);
-    const assembling = gb.setupType === 'towerAssembly' && s.setupProgress < 1;
-    const headOn = !assembling || s.setupProgress >= 0.5;
+    tc.visible = cjOn;
+    if (cj && cjOn) {
+      const a = along(cj, root);
+      placeBetween(tc, { x: a.u, y: a.y, z: 0 }, { x: cj.u1, y: cj.y1, z: 0 }, tower ? TOWER_COUNTERJIB_H : 1.1, 1.1);
+    }
     if (this.cab) {
-      this.cab.visible = headOn;
+      this.cab.visible = suOn;
       this.cab.position.set(topU + 1.6, topY - 1.4, 1.7);
     }
     if (this.trolley) {
-      this.trolley.visible = jibLen > 0.3 && g.jibUnfold >= 1;
+      this.trolley.visible = jibOn && jibLen > 0.3 && g.jibUnfold >= 1;
       this.trolley.position.set(g.tipU, g.tipY + 0.6, 0);
     }
     const peakH = cfg.carrier === 'selfErecting' ? 3 : 7;
     if (this.towerPeak) {
       this.towerPeak.visible = headOn && g.jibUnfold >= 1;
-      placeBetween(this.towerPeak, { x: topU, y: topY, z: 0 }, { x: topU, y: topY + peakH, z: 0 }, 0.5, 0.5);
+      this.towerPeak.position.set(topU, topY, 0);
     }
+    // trekstangen van de torenkop naar giek en tegengiek
     const peak = new THREE.Vector3(topU, topY + peakH, 0);
     const showPend = headOn && g.jibUnfold >= 1;
-    this.pendants[0].visible = showPend && jibLen > 1;
-    this.pendants[1].visible = showPend && !!cj;
+    this.pendants[0].visible = showPend && jibOn && jibLen > 1;
+    this.pendants[1].visible = showPend && cjOn;
     if (jib) setLine(this.pendants[0], peak, new THREE.Vector3(topU + (jib.u1 - jib.u0) * 0.65, jib.y0, 0));
     if (cj) setLine(this.pendants[1], peak, new THREE.Vector3(cj.u1, cj.y1, 0));
-    // ballast: zelfopbouw op de onderwagen, torenkraan op de tegengiek
-    const ballastOn = cfg.carrier === 'selfErecting' ? Math.round(Math.min(1, Math.max(0, (s.setupProgress - 0.2) / 0.2)) * this.ballast.length) : assembling ? (s.setupProgress >= 0.9 ? Math.round(((s.setupProgress - 0.9) / 0.1) * this.ballast.length) : 0) : this.ballast.length;
+    // ballast: zelfopbouw op de onderwagen, torenkraan bovenop de tegengiek
+    if (cfg.carrier === 'selfErecting') {
+      const on = Math.round(Math.min(1, Math.max(0, (s.setupProgress - 0.2) / 0.2)) * this.ballast.length);
+      this.ballast.forEach((b, i) => (b.visible = i < on));
+      return;
+    }
+    const dirCj = cj && cj.u1 < cj.u0 ? -1 : 1;
+    const slewC = Math.cos(s.slew) >= 0 ? 1 : -1;
     this.ballast.forEach((b, i) => {
-      b.visible = i < ballastOn;
-      if (cfg.carrier !== 'selfErecting' && cj) b.position.set(cj.u1 + 0.6 + i * 1.1, cj.y1 - 1.2, 0);
+      if (build) {
+        const bl = build.ballast[i];
+        b.visible = !!bl && cjOn;
+        // wereld-x → afstand langs de tegengiek (de giek staat tijdens de montage langs x)
+        if (bl && cj) b.position.set((bl.x - g.slewX) * slewC, cj.y1 + TOWER_COUNTERJIB_H / 2 + TOWER_BALLAST_H / 2, 0);
+        return;
+      }
+      b.visible = cjOn;
+      if (cj) b.position.set(cj.u1 - dirCj * (0.7 + i * 1.4), cj.y1 + TOWER_COUNTERJIB_H / 2 + TOWER_BALLAST_H / 2, 0);
     });
   }
 }

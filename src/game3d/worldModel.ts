@@ -396,18 +396,18 @@ export class ZoneMarker {
   private edges: THREE.LineSegments;
   private ghost: THREE.LineSegments | null = null;
 
-  constructor(x: number, y: number, halfW: number, tol: number, zTol: number, ghost?: { w: number; h: number; d: number }) {
+  constructor(x: number, y: number, halfW: number, tol: number, zTol: number, ghost?: { w: number; h: number; d: number }, z = 0) {
     const w = halfW * 2 + tol * 2;
     const d = Math.max(1, zTol * 2 + (ghost?.d ?? 1));
     this.fill = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, d), new THREE.MeshBasicMaterial({ color: 0xf2b705, transparent: true, opacity: 0.25, depthWrite: false }));
-    this.fill.position.set(x, y + 0.03, 0);
+    this.fill.position.set(x, y + 0.03, z);
     this.edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, 0.05, d)), new THREE.LineBasicMaterial({ color: 0xf2b705 }));
     this.edges.position.copy(this.fill.position);
     this.root.add(this.fill, this.edges);
     if (ghost) {
       this.ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(ghost.w, ghost.h, ghost.d)), new THREE.LineDashedMaterial({ color: 0xf2b705, dashSize: 0.3, gapSize: 0.2, transparent: true, opacity: 0.7 }));
       this.ghost.computeLineDistances();
-      this.ghost.position.set(x, y + ghost.h / 2, 0);
+      this.ghost.position.set(x, y + ghost.h / 2, z);
       this.root.add(this.ghost);
     }
   }

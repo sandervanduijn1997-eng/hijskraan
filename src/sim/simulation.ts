@@ -12,9 +12,12 @@ import type { CraneState } from '../cranes/models/craneState';
 import { createCraneState } from '../cranes/models/craneState';
 import type { CraneGeometry } from '../cranes/models/kinematics';
 import { computeGeometry, hasSetupProcedure, setupStageLabel } from '../cranes/models/kinematics';
+import type { ErectionLayout, TowerBuild } from '../cranes/models/towerErection';
+import { TOWER_BALLAST_H, TOWER_BALLAST_W, TOWER_ERECTION_SECTIONS, TOWER_HEAD_H, TOWER_SLEW_UNIT_H, emptyTowerBuild, erectionLayout } from '../cranes/models/towerErection';
+import type { CraneStartConfig } from '../cranes/models/craneState';
 import type { LoadType } from '../missions/data/loads';
 import { getLoad } from '../missions/data/loads';
-import type { MissionDef, PlaceEffect, TaskDef, ZoneDef } from '../missions/data/types';
+import type { MissionDef, PlaceEffect, TaskDef, TowerAssemblyDef, TowerPartKind, ZoneDef } from '../missions/data/types';
 import { buildColliders } from '../missions/runtime/buildWorld';
 import type { ScoreBreakdown, ScoreMetrics } from '../missions/runtime/scoring';
 import { computeScore, emptyMetrics } from '../missions/runtime/scoring';
@@ -71,6 +74,8 @@ export type SimEvent =
   | { type: 'success' }
   | { type: 'fail'; reason: string }
   | { type: 'lmiCutoff' }
+  | { type: 'towerPart'; part: TowerPartKind }
+  | { type: 'craneSwitch' }
   | { type: 'warning'; warning: Warning };
 
 export interface SimOptions {
@@ -98,15 +103,41 @@ export interface BodySnapshot {
 
 const HOOK_ID = '__hook__';
 const ATTACH_DIST = 1.1;
+/** Toelaatbaar mastmoment tijdens de montage (tm): zonder het eerste ballastblok vóór de giek wordt dit overschreden. */
+export const ERECTION_MOMENT_LIMIT_TM = 320;
+
+/** Toestand van de torenkraanmontage met een hulpkraan. */
+export interface AssemblyRuntime {
+  def: TowerAssemblyDef;
+  layout: ErectionLayout;
+  build: TowerBuild;
+  /** Na het overstappen is de toren de bediende kraan en de hulpkraan geparkeerd. */
+  switched: boolean;
+}
+
+/** Een geparkeerde (niet meer bediende) kraan, bijvoorbeeld de hulpkraan na de montage. */
+export interface ParkedCrane {
+  spec: ResolvedCrane;
+  crane: CraneState;
+  geom: CraneGeometry;
+}
 
 export class Simulation {
   readonly mission: MissionDef;
-  readonly spec: ResolvedCrane;
+  /** De bediende kraan (tijdens een montage eerst de hulpkraan). */
+  spec: ResolvedCrane;
+  /** De kraan waarmee de opdracht wordt uitgevoerd (gehuurd/eigen). */
+  readonly missionSpec: ResolvedCrane;
   readonly difficulty: DifficultyProfile;
-  readonly crane: CraneState;
+  crane: CraneState;
   geom: CraneGeometry;
   readonly world: PhysicsWorld;
-  readonly rope: RopeState;
+  rope: RopeState;
+  readonly assembly: AssemblyRuntime | null;
+  parked: ParkedCrane | null = null;
+  private readonly missionStart: CraneStartConfig;
+  private readonly missionCondition: number;
+  private fuelOffset = 0;
   colliders: Collider[];
   readonly missionColliders: Collider[];
   private craneCollKey = '';
@@ -119,9 +150,9 @@ export class Simulation {
   readonly seed: number;
   hookBody: ContactBody | null = null;
   attached: LoadRuntime | null = null;
-  readonly hookMassKg: number;
-  readonly hookH: number;
-  readonly hookW: number;
+  hookMassKg: number;
+  hookH: number;
+  hookW: number;
   time = 0;
   wind: WindSample = { x: 0, z: 0, speed: 0 };
   /** Kabelkracht, gefilterd voor weergave en beoordeling (τ = 0,25 s). */
@@ -161,30 +192,36 @@ export class Simulation {
     this.mission = opt.mission;
     this.freePlay = opt.freePlay ?? false;
     const craneId = opt.craneId ?? opt.mission.craneOptions[0];
-    this.spec = resolveCrane(getCrane(craneId), opt.upgrades ?? []);
+    this.missionSpec = resolveCrane(getCrane(craneId), opt.upgrades ?? []);
+    const asm = opt.mission.assembly;
+    // bij een montage bedien je eerst de hulpkraan (geleverd door de missie, zonder upgrades en in nieuwstaat)
+    this.spec = asm ? resolveCrane(getCrane(asm.assistCrane), []) : this.missionSpec;
     this.difficulty = opt.difficulty ?? DIFFICULTIES.normal;
-    this.condition = opt.condition ?? 1;
+    this.missionCondition = opt.condition ?? 1;
+    this.condition = asm ? 1 : this.missionCondition;
     this.seed = hashString(opt.mission.id);
     const start = { ...opt.mission.crane };
     if (opt.counterweightIndex !== undefined) start.counterweightIndex = opt.counterweightIndex;
     if (opt.boomOptionIndex !== undefined) start.boomOptionIndex = opt.boomOptionIndex;
     if (opt.jibIndex !== undefined) start.jibIndex = opt.jibIndex;
-    this.crane = createCraneState(this.spec, start);
+    this.missionStart = start;
+    this.assembly = asm
+      ? { def: asm, layout: erectionLayout(this.missionSpec.cfg, start.x, 0, asm.erectSlewDeg), build: emptyTowerBuild(asm.preinstalledSections), switched: false }
+      : null;
+    this.crane = createCraneState(this.spec, asm ? asm.assist : start);
     this.geom = computeGeometry(this.spec, this.crane);
     this.prevTip = { ...this.geom.tip };
 
     const params = defaultPhysicsParams();
     params.gravity = opt.gravity ?? GRAVITY;
-    params.swayDamping = this.difficulty.swayDamping + this.spec.effects.extraSwayDamping;
-    // ca. 15 cm rek (kabel + giekdoorbuiging) bij de nominale capaciteit van de kraan
-    params.ropeCompliance = 0.15 / (this.spec.gb.maxCapacityT * 1000 * GRAVITY);
     this.world = new PhysicsWorld(params);
+    this.applyCraneParams();
     this.missionColliders = buildColliders(opt.mission.obstacles);
     this.colliders = this.missionColliders;
     this.refreshCraneColliders();
 
     this.hookMassKg = this.spec.gb.hookMassKg;
-    this.hookW = 0.35 + 0.12 * Math.cbrt(this.hookMassKg / 100);
+    this.hookW = hookWidth(this.hookMassKg);
     this.hookH = this.hookW * 1.4;
     this.rope = createRope(this.geom.tip, this.crane.ropeLength, this.spec.gb.ropeMin, this.spec.gb.ropeMax);
 
@@ -222,6 +259,111 @@ export class Simulation {
     this.snapshot();
   }
 
+  /** Kabel- en slingerparameters die van de bediende kraan afhangen. */
+  private applyCraneParams(): void {
+    const p = this.world.params;
+    p.swayDamping = this.difficulty.swayDamping + this.spec.effects.extraSwayDamping;
+    // ca. 15 cm rek (kabel + giekdoorbuiging) bij de nominale capaciteit van de kraan
+    p.ropeCompliance = 0.15 / (this.spec.gb.maxCapacityT * 1000 * GRAVITY);
+  }
+
+  /** Bedien je nu de hulpkraan van een torenkraanmontage? */
+  get assisting(): boolean {
+    return !!this.assembly && !this.assembly.switched;
+  }
+
+  // ---------------------------------------------------------------- torenkraanmontage
+
+  /** Botsingsobjecten van de torenkraan in aanbouw (alleen zolang de hulpkraan wordt bediend). */
+  towerStructureColliders(): Collider[] {
+    const a = this.assembly;
+    if (!a || a.switched) return [];
+    const L = a.layout;
+    const b = a.build;
+    const { x, z } = L;
+    const mk = (id: string, minX: number, maxX: number, minY: number, maxY: number, hz: number, landable: boolean): Collider => ({
+      id, kind: 'tower', minX, maxX, minY, maxY, minZ: z - hz, maxZ: z + hz, onHit: 'damage', landable, label: 'de torenkraan in aanbouw',
+    });
+    const out: Collider[] = [mk('tw-base', x - 4, x + 4, 0, L.baseH, 4, false), mk('tw-mast', x - 0.8, x + 0.8, L.baseH, L.mastTop(b.sections), 0.8, true)];
+    const top = L.mastTop(TOWER_ERECTION_SECTIONS);
+    if (b.slewingUnit) out.push(mk('tw-su', x - 1.2, x + 1.2, top, top + TOWER_SLEW_UNIT_H, 1.2, true));
+    if (b.towerHead) out.push(mk('tw-th', x - 0.7, x + 0.7, L.deckY, L.deckY + TOWER_HEAD_H, 0.7, false));
+    if (b.counterJib) out.push(mk('tw-cj', L.counterJib.x0, L.counterJib.x1, L.counterJib.y0, L.counterJib.y1, 0.9, true));
+    if (b.jib) out.push(mk('tw-jib', L.jib.x0, L.jib.x1, L.jib.y0, L.jib.y1, 0.75, false));
+    b.ballast.forEach((bl, i) => out.push(mk(`tw-bal${i}`, bl.x - TOWER_BALLAST_W / 2, bl.x + TOWER_BALLAST_W / 2, L.counterJib.y1, L.counterJib.y1 + TOWER_BALLAST_H, 1.1, false)));
+    return out;
+  }
+
+  /**
+   * Moment op de mast door de gemonteerde delen (tm, positief = naar de tegengiek).
+   * De juiste ballastvolgorde houdt dit tijdens de hele montage binnen de grens.
+   */
+  towerMomentTm(): number {
+    const a = this.assembly;
+    if (!a) return 0;
+    const L = a.layout;
+    const b = a.build;
+    let m = 0;
+    if (b.counterJib) m += (getLoad('towerCounterJib').massKg / 1000) * ((L.counterJib.x0 + L.counterJib.x1) / 2 - L.x);
+    if (b.jib) m += (getLoad('towerJib').massKg / 1000) * ((L.jib.x0 + L.jib.x1) / 2 - L.x);
+    for (const bl of b.ballast) m += bl.massT * (bl.x - L.x);
+    // de tegengiek wijst tegen de giekrichting in
+    return m * -L.jibDir;
+  }
+
+  /** Synthetische kraantoestand van de torenkraan in aanbouw (voor de weergave). */
+  erectionState(): CraneState | null {
+    const a = this.assembly;
+    if (!a || a.switched) return null;
+    const st = createCraneState(this.missionSpec, { ...this.missionStart, slewDeg: a.def.erectSlewDeg, ropeLength: this.missionSpec.gb.ropeMin });
+    st.setupProgress = 0;
+    return st;
+  }
+
+  /** Van de hulpkraan overstappen naar de gemonteerde torenkraan. */
+  private switchToMissionCrane(): void {
+    const a = this.assembly;
+    if (!a || a.switched) return;
+    this.parked = { spec: this.spec, crane: this.crane, geom: this.geom };
+    this.fuelOffset += this.crane.fuelUsed;
+    if (this.attached) this.detachLoad(false);
+    if (this.hookBody) {
+      this.world.removeBody(this.hookBody);
+      this.prevSnap.delete(HOOK_ID);
+      this.hookBody = null;
+    }
+    this.world.ropeBody = null;
+    a.switched = true;
+    this.spec = this.missionSpec;
+    this.condition = this.missionCondition;
+    this.crane = createCraneState(this.spec, this.missionStart);
+    this.geom = computeGeometry(this.spec, this.crane);
+    this.prevTip = { ...this.geom.tip };
+    this.applyCraneParams();
+    this.hookMassKg = this.spec.gb.hookMassKg;
+    this.hookW = hookWidth(this.hookMassKg);
+    this.hookH = this.hookW * 1.4;
+    this.rope = createRope(this.geom.tip, this.crane.ropeLength, this.spec.gb.ropeMin, this.spec.gb.ropeMax);
+    this.craneCollKey = '';
+    this.refreshCraneColliders();
+    this.spawnHook();
+    this.tensionF = 0;
+    this.tensionFast = 0;
+    this.lmiLatched = false;
+    this.outriggerAuto.outriggerAuto = 'none';
+    this.support = supportState(this.spec, this.crane);
+    this.events.push({ type: 'craneSwitch' });
+  }
+
+  /** Geparkeerde kraan: alleen de onderwagen blijft als obstakel staan. */
+  private parkedColliders(): Collider[] {
+    const p = this.parked;
+    if (!p) return [];
+    const half = p.spec.cfg.visual.carrierLength / 2;
+    const c = p.crane;
+    return [{ id: 'parked-carrier', kind: 'machine', minX: c.baseX - half, maxX: c.baseX + half, minY: 0, maxY: p.spec.cfg.visual.carrierHeight + 1.5, minZ: c.baseZ - 1.4, maxZ: c.baseZ + 1.4, onHit: 'damage', landable: false, label: 'de geparkeerde hulpkraan' }];
+  }
+
   // ---------------------------------------------------------------- eigen kraandelen als botsingsobject
 
   /** Onderwagen (landbaar dek) en, voor torenkranen, de mast. */
@@ -229,10 +371,11 @@ export class Simulation {
     const cfg = this.spec.cfg;
     const gb = this.spec.gb;
     const x = this.crane.baseX;
+    const bz = this.crane.baseZ;
     const half = cfg.visual.carrierLength / 2;
     const out: Collider[] = [];
     const mk = (id: string, minX: number, maxX: number, minY: number, maxY: number, z: number, landable: boolean): Collider => ({
-      id, kind: 'crane', minX, maxX, minY, maxY, minZ: -z, maxZ: z, onHit: 'damage', landable, label: 'de eigen kraan',
+      id, kind: 'crane', minX, maxX, minY, maxY, minZ: bz - z, maxZ: bz + z, onHit: 'damage', landable, label: 'de eigen kraan',
     });
     if (cfg.carrier === 'towerBase') {
       // de mast groeit mee tijdens de montage
@@ -249,10 +392,12 @@ export class Simulation {
   }
 
   private refreshCraneColliders(): void {
-    const key = `${this.crane.baseX.toFixed(3)}|${Math.round(this.crane.setupProgress * 40)}`;
+    const b = this.assembly?.build;
+    const buildKey = b && !this.assembly!.switched ? `${b.sections}${+b.slewingUnit}${+b.towerHead}${+b.counterJib}${+b.jib}${b.ballast.length}` : '';
+    const key = `${this.crane.baseX.toFixed(3)}|${Math.round(this.crane.setupProgress * 40)}|${buildKey}|${this.parked ? 1 : 0}`;
     if (key === this.craneCollKey) return;
     this.craneCollKey = key;
-    this.colliders = [...this.missionColliders, ...this.craneOwnColliders()];
+    this.colliders = [...this.missionColliders, ...this.towerStructureColliders(), ...this.parkedColliders(), ...this.craneOwnColliders()];
     this.world.setColliders(this.colliders);
   }
 
@@ -449,11 +594,13 @@ export class Simulation {
     this.refreshCraneColliders();
     this.geom = computeGeometry(this.spec, this.crane);
     if (this.crane.setupProgress < 1 && hasSetupProcedure(this.spec)) {
-      // tijdens montage/opbouw viert de lier automatisch mee: de haak wordt niet over de grond meegesleept
-      const a = this.ropeAttachPoint();
+      // tijdens montage/opbouw viert de lier automatisch mee met de beweging van de giekpunt:
+      // de haak wordt niet over de grond meegesleept en blijft hangen waar hij hing
+      const a = hookPos;
       const t = this.geom.tip;
       const d = Math.hypot(a.x - t.x, a.y - t.y, a.z - t.z);
-      this.crane.ropeLength = clamp(Math.max(this.crane.ropeLength, d + 0.3), this.spec.gb.ropeMin, this.spec.gb.ropeMax);
+      const d0 = Math.hypot(a.x - tipStart.x, a.y - tipStart.y, a.z - tipStart.z);
+      if (d > d0) this.crane.ropeLength = clamp(this.crane.ropeLength + (d - d0), this.spec.gb.ropeMin, this.spec.gb.ropeMax);
     }
     this.rope.length = this.crane.ropeLength;
     this.rope.tip = { ...this.geom.tip };
@@ -589,7 +736,7 @@ export class Simulation {
   private measure(dt: number): void {
     const m = this.metrics;
     m.time = this.time;
-    m.fuelUsed = this.crane.fuelUsed;
+    m.fuelUsed = this.crane.fuelUsed + this.fuelOffset;
     const tip = this.geom.tip;
     const hook = this.ropeAttachPoint();
     const ang = ropeAngles(tip, hook);
@@ -686,6 +833,7 @@ export class Simulation {
         this.metrics.safetyViolations++;
       }
     }
+    if (ctl.climbBlocked) W.raise('setup', 'caution', 'Klimmen kan alleen zonder last aan de haak — zet de last eerst neer');
     if (ctl.outriggerObstacle) W.raise('outriggerObstacle', 'caution', 'Stempel raakt een obstakel — kan niet verder uitschuiven');
     if (ctl.blocked.drive === 'outriggers') W.raise('driveBlocked', 'info', 'Rijden kan pas met volledig ingehaalde stempels');
     else if (ctl.blocked.drive === 'driveLoad') W.raise('driveBlocked', 'info', 'Rijden met deze last is niet toegestaan');
@@ -717,7 +865,7 @@ export class Simulation {
         if (t.def.type !== 'deliver') break;
         if (t.status === 'done') continue;
         active.push(t);
-        if (ordered) break;
+        if (ordered || t.def.inOrder) break;
       }
     }
     for (const t of active) t.status = 'active';
@@ -736,6 +884,12 @@ export class Simulation {
         case 'setup':
           ok = this.crane.setupProgress >= 1;
           break;
+        case 'switchCrane':
+          if (!this.attached) {
+            this.switchToMissionCrane();
+            ok = true;
+          }
+          break;
         case 'stow': {
           const gb = this.spec.gb;
           if (this.spec.cfg.kind === 'tower') ok = this.crane.trolley <= (gb.trolleyMin ?? 0) + 1 && this.crane.ropeLength <= gb.ropeMin + 2;
@@ -746,6 +900,24 @@ export class Simulation {
           const l = this.loadById(d.loadId);
           const zone = this.mission.zones.find((z) => z.id === d.zoneId);
           if (!l || !zone || l.status === 'consumed') break;
+          if (d.hold) {
+            // in de lucht stil houden tot de monteurs het deel hebben vastgezet: de kraan draagt het gewicht
+            const held = l === this.attached && this.tensionF > l.type.massKg * GRAVITY * 0.6;
+            const pc = checkPlacement(l.cb.body, zone, held, 0.12, true);
+            if (l === this.attached || this.placementHint === null) this.placementHint = pc;
+            if (pc.valid) {
+              t.hold += dt;
+              if (t.hold >= d.hold) {
+                ok = true;
+                this.metrics.placementErrors.push(pc.error);
+                this.detachLoad(true);
+                l.status = 'placed';
+                this.applyEffect(l, d.effect);
+                this.events.push({ type: 'placed', loadId: l.id });
+              }
+            } else t.hold = 0;
+            break;
+          }
           const supported = l.cb.supports.size > 0 || l.cb.body.sleeping;
           const pc = checkPlacement(l.cb.body, zone, supported && this.validSupport(l, zone));
           const slackEnough = l !== this.attached || this.tensionF < l.type.massKg * GRAVITY * 0.15;
@@ -772,13 +944,13 @@ export class Simulation {
       }
     }
     // als er een taak buiten de volgorde is geplaatst: melding
-    if (ordered) {
+    if (ordered || this.tasks.some((t) => t.def.type === 'deliver' && t.def.inOrder)) {
       for (const t of this.tasks) {
-        if (t.def.type !== 'deliver' || t.status !== 'pending') continue;
+        if (t.def.type !== 'deliver' || t.status !== 'pending' || !(ordered || t.def.inOrder)) continue;
         const l = this.loadById(t.def.loadId);
         const zone = this.mission.zones.find((z) => z.id === (t.def as { zoneId: string }).zoneId);
         if (l && zone && l.status !== 'consumed' && l.cb.supports.size > 0 && Math.abs(l.cb.body.pos.x - zone.x) < zone.tolerance + 0.5) {
-          this.warnings.raise('order', 'caution', 'Verkeerde volgorde — deze last is nog niet aan de beurt');
+          this.warnings.raise('order', 'caution', t.def.inOrder ? 'Verkeerde montagevolgorde — dit deel is nog niet aan de beurt' : 'Verkeerde volgorde — deze last is nog niet aan de beurt');
         }
       }
     }
@@ -801,10 +973,36 @@ export class Simulation {
   private applyEffect(l: LoadRuntime, effect: PlaceEffect | undefined): void {
     if (!effect) return;
     if (effect.type === 'addCounterweight') this.crane.extraCounterweightT += effect.massT;
-    if (effect.type === 'consume' || (effect.type === 'addCounterweight' && effect.consume)) {
+    if (effect.type === 'towerPart' && this.assembly) {
+      const b = this.assembly.build;
+      switch (effect.part) {
+        case 'mast':
+          b.sections++;
+          break;
+        case 'slewingUnit':
+          b.slewingUnit = true;
+          break;
+        case 'towerHead':
+          b.towerHead = true;
+          break;
+        case 'counterJib':
+          b.counterJib = true;
+          break;
+        case 'jib':
+          b.jib = true;
+          break;
+        case 'ballast':
+          b.ballast.push({ x: l.cb.body.pos.x, massT: l.type.massKg / 1000 });
+          break;
+      }
+      this.events.push({ type: 'towerPart', part: effect.part });
+    }
+    if (effect.type === 'consume' || effect.type === 'towerPart' || (effect.type === 'addCounterweight' && effect.consume)) {
       l.status = 'consumed';
       this.world.removeBody(l.cb);
+      this.prevSnap.delete(l.id);
     }
+    this.refreshCraneColliders();
   }
 
   private checkFailure(dt: number): void {
@@ -813,6 +1011,7 @@ export class Simulation {
     if (this.metrics.damage >= this.mission.maxDamage) return this.fail(`Te veel schade (${this.metrics.damage.toFixed(0)} %).`);
     if (this.mission.timeLimit && this.difficulty.timer && !this.freePlay && this.time > this.mission.timeLimit) return this.fail('De tijd is verstreken.');
     if (this.spec.gb.anchored && this.attached && this.loadPct > 140) return this.fail('Constructieve overbelasting van de torenkraan.');
+    if (this.assisting && Math.abs(this.towerMomentTm()) > ERECTION_MOMENT_LIMIT_TM) return this.fail('De torenkraan in aanbouw is uit balans: verkeerde ballastvolgorde.');
     if (this.attached && this.loadPct > 110 && this.difficulty.overloadFail) {
       this.overloadTimer += dt;
       if (this.overloadTimer > 1.5) return this.fail('Veiligheidsovertreding: aanhoudende overbelasting.');
@@ -861,6 +1060,9 @@ export class Simulation {
   }
 }
 
+/** Breedte van het haakblok bij een bepaalde haakmassa. */
+export const hookWidth = (massKg: number): number => 0.35 + 0.12 * Math.cbrt(massKg / 100);
+
 export function taskLabel(t: TaskDef, m: MissionDef): string {
   switch (t.type) {
     case 'deliver': {
@@ -878,5 +1080,7 @@ export function taskLabel(t: TaskDef, m: MissionDef): string {
       return t.label ?? 'Opbouwprocedure voltooien';
     case 'stow':
       return t.label ?? 'Kraan in transportstand zetten';
+    case 'switchCrane':
+      return t.label ?? 'Overstappen naar de missiekraan';
   }
 }

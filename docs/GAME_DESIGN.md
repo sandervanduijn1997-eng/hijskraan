@@ -14,7 +14,7 @@ De speler begint als junior machinist met een compacte all-terrain kraan en groe
 | Kodo TC 25 | Truckkraan | XCMG QY-serie | Snel, licht, leveringen |
 | Maxon LC 300 | Vakwerk-rupskraan | Liebherr LR-serie | Giekmontage (B), rijden met ≤ 50 % last |
 | Potera SE 32 | Zelfopbouwende torenkraan | Potain Igo-serie | 4-fasige zelfopbouw (stempels, ballast, mast, giek) |
-| Potera TC 160 | Torenkraan | Potain MD-serie | 52 m hoog, 60 m giek, loopkat, verankerd |
+| Potera TC 160 | Torenkraan | Potain MD-serie | 52 m hoog, 60 m giek, loopkat, verankerd; wordt per missie gemonteerd met een mobiele hulpkraan en klimt zelf naar werkhoogte |
 | Maxon HL 600 | Heavy-lift rupskraan | Manitowoc MLC-serie | Gieken tot 108 m, hulpgiek, contragewicht tot 500 t |
 | Falkon KB 22 | Kniktelescopische autolaadkraan | Palfinger PK-serie | Hoofdarm + knikarm + telescoop, reikt achter obstakels |
 | Vectra CD 15 | Pick-and-carry | Grove carry-deck | Rijdt met last, voor hallen |
@@ -25,11 +25,26 @@ Elke kraan heeft een eigen configuratieobject (`cranes/config/cranes.ts`) met al
 
 40 missies in 8 hoofdstukken, als data in `missions/data/chapters*.ts`. Elke missie heeft: briefing, leerdoel, bedieningshint, kraanopties, startconfiguratie, lasten, zones (positie-, hoek- en dieptetolerantie), obstakels, ondergrond, taken, wind, optionele tijdslimiet, richttijd, maximale schade, eisen, planningsopties en beloning.
 
-Taaktypen: `deliver` (last in zone), `drive` (werkpositie bereiken), `outriggers`, `setup` (zelfopbouw/giekmontage), `stow` (transportstand). Leveringen mogen in willekeurige volgorde tenzij `ordered`. Effecten: een geplaatste contragewichtplaat wordt gemonteerd en verhoogt de stabiliteit (missie 27).
+Taaktypen: `deliver` (last in zone; met `inOrder` vaste volgorde, met `hold` in de lucht stil houden), `drive` (werkpositie bereiken), `outriggers`, `setup` (zelfopbouw/giekmontage/klimmen), `stow` (transportstand), `switchCrane` (overstappen van hulpkraan naar missiekraan). Leveringen mogen in willekeurige volgorde tenzij `ordered`. Effecten: een geplaatste contragewichtplaat wordt gemonteerd en verhoogt de stabiliteit (missie 27).
 
 **Een levering telt alleen als** de last binnen de tolerantie op het juiste vlak staat (niet erboven hangend, niet eronder), recht is, op een geldig oppervlak steunt, stilstaat en de kabel ontlast is — 1,5 s aaneengesloten.
 
 Bijzondere missies: 11 (zelfopbouw), 19 (diepte-uitlijning tussen leidingen), 21–22 (opstelplaats en draagkracht kiezen), 23 (giekmontage), 24 (volgorde + transportstand), 25 (helling + damwand naast de stempels), 27 (contragewicht monteren), 30/39/40 (zelf hijsplan kiezen: kraan, giek, contragewicht), 37 (gondel op 80 m), 38–39 (de AT-kraan is bewust ongeschikt: de planning laat dat zien).
+
+### Torenkraanmontage (missies 12–15 en vrije oefening met de TC 160)
+
+`missions/data/towerAssembly.ts` (`withTowerAssembly`) zet vóór de eigenlijke opdracht een montage zoals op de bouwplaats:
+
+1. **Hulpkraan opstempelen**: je bedient eerst de Vectra AT 500 (45 t contragewicht), die 14 m achter de toren staat (z = −14).
+2. **Mastsecties** 2 en 3 op de voetsectie (de fundering met voetsectie staat er al) → montagehoogte.
+3. **Draaikrans met cabine** en daarna de **torenkop (A-bok)**.
+4. **Tegengiek** inhangen en 3 s stil houden tot pennen en trekstangen vastzitten.
+5. **Ballast deel 1**: één blok van 6 t, vóór de giek.
+6. **Giek** (58 m, 14 t) inhangen en 4 s stil houden. De giek wijst tijdens de montage van het werkterrein af (−x), zodat hij niet door de hoge gebouwen gaat.
+7. **Ballast deel 2**: twee blokken van 9 t.
+8. **Hulpkraan in transportstand**, **overstappen** naar de torenkraan, en met B **klimmen** van 3 naar 8 mastsecties (klimkooi; alleen zonder last; de lier viert mee).
+
+Waarom deze ballastvolgorde: de HUD toont de **torenbalans** (moment op de mast). Met tegengiek + één blok is die +172 tm, na de giek −259 tm, na de laatste ballast ≈ 0. Giek zonder ballast (−363 tm) of alle ballast vóór de giek (+449 tm) overschrijdt de montagegrens van 320 tm (`ERECTION_MOMENT_LIMIT_TM`). De validator controleert elke montagehijs met het lastdiagram van de hulpkraan (zwaarste: de giek, ca. 47 %).
 
 ## Moeilijkheidsgraden
 

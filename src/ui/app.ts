@@ -12,7 +12,7 @@ import { CHALLENGES, challengeMission, practiceMission } from '../missions/data/
 import type { ChallengeDef } from '../missions/data/challenges';
 import { CHAPTERS, MISSIONS, missionsInChapter } from '../missions/data/index';
 import { LOADS, getLoad } from '../missions/data/loads';
-import type { EnvironmentId, MissionDef } from '../missions/data/types';
+import type { EnvironmentId, MissionDef, TowerPartKind } from '../missions/data/types';
 import { SCORE_LABELS, SCORE_WEIGHTS } from '../missions/runtime/scoring';
 import { validateMission } from '../missions/validation/validateMission';
 import { DEFAULT_BINDINGS, loadGame, saveGame } from '../save/saveSystem';
@@ -46,6 +46,15 @@ interface PlanChoice {
   jib: number;
   difficulty: DifficultyId;
 }
+
+const TOWER_PART_DONE: Record<TowerPartKind, string> = {
+  mast: 'Mastsectie vastgebout ✓',
+  slewingUnit: 'Draaikrans met cabine gemonteerd ✓',
+  towerHead: 'Torenkop gemonteerd ✓',
+  counterJib: 'Tegengiek vastgepind, trekstangen gekoppeld ✓',
+  jib: 'Giek vastgepind, trekstangen gekoppeld ✓',
+  ballast: 'Ballastblok geplaatst ✓',
+};
 
 export class App {
   save: SaveData;
@@ -163,7 +172,7 @@ export class App {
   private onFrame(sim: Simulation, scene: World3D): void {
     this.scene = scene;
     if (this.session?.mode === 'demo') return;
-    if (!this.hud || this.hud.sim !== sim) {
+    if (!this.hud || this.hud.sim !== sim || this.hud.spec !== sim.spec) {
       this.hud?.root.remove();
       this.hud = new Hud(sim, {
         pause: () => this.togglePause(),
@@ -210,7 +219,15 @@ export class App {
           break;
         case 'placed':
           audio.ui('confirm');
-          this.hud?.toast('Last correct geplaatst ✓');
+          if (!sim.assisting) this.hud?.toast('Last correct geplaatst ✓');
+          break;
+        case 'towerPart':
+          audio.clank(0.12, 300);
+          this.hud?.toast(TOWER_PART_DONE[e.part]);
+          break;
+        case 'craneSwitch':
+          audio.ui('confirm');
+          this.hud?.toast(`Je bedient nu de ${sim.spec.cfg.name}. Houd B ingedrukt om naar werkhoogte te klimmen.`, 4000);
           break;
         case 'taskComplete':
           if (sim.tasks[e.index]?.def.type !== 'deliver') {
@@ -581,7 +598,7 @@ export class App {
     const m = sim.mission;
     if (success && mode === 'career') {
       const lifted = m.loads.reduce((a, l) => a + getLoad(l.type).massKg / 1000, 0);
-      payout = applyMissionResult(this.save, m, score, sim.time, sim.spec.cfg.id, sim.metrics.damage, lifted);
+      payout = applyMissionResult(this.save, m, score, sim.time, sim.missionSpec.cfg.id, sim.metrics.damage, lifted);
       this.persist();
     } else if (mode === 'career') {
       payout = null;
@@ -614,7 +631,7 @@ export class App {
           h('div', { class: 'tot' }, h('span', null, 'Uitbetaald'), h('span', null, `${formatMoney(payout.money)} · +${payout.xp} XP`)),
           payout.newLicense ? h('div', { style: 'color:var(--green)' }, h('span', null, `Nieuwe licentie: ${LICENSE_LABELS[m.reward.license!]}`), h('span', null, '✓')) : null,
           payout.newLivery ? h('div', { style: 'color:var(--green)' }, h('span', null, `Speciale uitvoering vrijgespeeld: ${LIVERIES[m.reward.livery!]?.label}`), h('span', null, '✓')) : null,
-          payout.wear > 0 ? h('div', { class: 'muted' }, h('span', null, 'Slijtage eigen kraan'), h('span', null, `conditie ${Math.round((this.save.craneCondition[sim.spec.cfg.id] ?? 1) * 100)} %`)) : null,
+          payout.wear > 0 ? h('div', { class: 'muted' }, h('span', null, 'Slijtage eigen kraan'), h('span', null, `conditie ${Math.round((this.save.craneCondition[sim.missionSpec.cfg.id] ?? 1) * 100)} %`)) : null,
         )
       : null;
     this.openOverlay(

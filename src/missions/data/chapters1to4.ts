@@ -1,3 +1,4 @@
+import { withTowerAssembly } from './towerAssembly';
 import { box, building, ceiling, fence, truck, zone } from './builders';
 import type { MissionDef } from './types';
 
@@ -209,20 +210,20 @@ export const CHAPTER_3: MissionDef[] = [
     wind: { base: 2, gust: 0.3, direction: 1 }, parTime: 200, maxDamage: 30, requirements: {}, bounds: { minX: -30, maxX: 50 },
     reward: { money: 1500, xp: 300 },
   },
-  {
+  withTowerAssembly({
     id: 'm12', number: 12, chapter: 3, title: 'Beton naar de derde verdieping',
     briefing: 'De betonkubel moet naar de bekisting op de derde verdieping. Houd de slinger klein: de bekisting is kwetsbaar.',
-    hint: 'Bouw eerst de torenkraan op: houd B ingedrukt (fundering, mastsecties, draaikrans, tegengiek, giek, ballast). Daarna is de loopkat (W/S) je straal; rem vroeg af.',
+    hint: 'De loopkat (W/S) is je straal; rem vroeg af.',
     learningGoal: 'Loopkat en slingerbeheersing.', difficulty: 2, craneOptions: ['tc160'], environment: 'highrise', timeOfDay: 'day', weather: 'clear',
     crane: { x: 0, trolley: 10, ropeLength: 40 },
     loads: [{ id: 'b1', type: 'concreteBucket', x: 10, y: 0 }],
     zones: [zone('z1', '3e verdieping', 30, 10.5, 0.5)],
     obstacles: [building('bld', 20, 20, 10.5, 'skeleton', 'casco')],
-    tasks: [{ type: 'setup', label: 'Torenkraan volledig opbouwen' }, { type: 'deliver', loadId: 'b1', zoneId: 'z1' }],
-    wind: { base: 4, gust: 0.4, direction: 1 }, parTime: 255, maxDamage: 30, requirements: { maxSwayDeg: 3 }, bounds: { minX: -30, maxX: 70 },
+    tasks: [{ type: 'deliver', loadId: 'b1', zoneId: 'z1' }],
+    wind: { base: 4, gust: 0.4, direction: 1 }, parTime: 200, maxDamage: 30, requirements: { maxSwayDeg: 3 }, bounds: { minX: -30, maxX: 70 },
     reward: { money: 1800, xp: 320 },
-  },
-  {
+  }),
+  withTowerAssembly({
     id: 'm13', number: 13, chapter: 3, title: 'Materiaal op hoogte',
     briefing: 'Lever drie ladingen bouwmateriaal af op drie verschillende verdiepingen van het terrasgebouw.',
     hint: 'De capaciteit van een torenkraan neemt af naarmate de loopkat verder naar buiten staat. Check de belasting.',
@@ -239,15 +240,15 @@ export const CHAPTER_3: MissionDef[] = [
       box('t2', 'building', 26, 7, 18, 7, { landable: true, label: 'terras 4', style: 'skeleton' }),
       box('t3', 'building', 32, 14, 12, 7, { landable: true, label: 'terras 6', style: 'skeleton' }),
     ],
-    tasks: [{ type: 'setup', label: 'Torenkraan volledig opbouwen' }, 
+    tasks: [
       { type: 'deliver', loadId: 'l1', zoneId: 'z1' },
       { type: 'deliver', loadId: 'l2', zoneId: 'z2' },
       { type: 'deliver', loadId: 'l3', zoneId: 'z3' },
     ],
-    wind: { base: 4, gust: 0.5, direction: -1 }, parTime: 475, maxDamage: 30, requirements: { maxSwayDeg: 5 }, bounds: { minX: -30, maxX: 70 },
+    wind: { base: 4, gust: 0.5, direction: -1 }, parTime: 420, maxDamage: 30, requirements: { maxSwayDeg: 5 }, bounds: { minX: -30, maxX: 70 },
     reward: { money: 2000, xp: 350 },
-  },
-  {
+  }),
+  withTowerAssembly({
     id: 'm14', number: 14, chapter: 3, title: 'Wind op de bouwplaats',
     briefing: 'Plaats het brede gevelpaneel op de verdiepingsvloer, vlak voor de hoge gevel. De wind wisselt van richting en sterkte.',
     hint: 'Een groot paneel vangt veel wind. Wacht een rustig moment af en blijf onder de 12 m/s.',
@@ -256,11 +257,11 @@ export const CHAPTER_3: MissionDef[] = [
     loads: [{ id: 'pn', type: 'facadePanel', x: 10, y: 0 }],
     zones: [zone('z1', 'Montagevloer', 30.4, 12, 0.4, { angleTolDeg: 4 })],
     obstacles: [building('annex', 18, 16, 12, 'skeleton', 'verdiepingsvloer'), box('facade', 'building', 34, 0, 10, 24, { label: 'gevel', style: 'glass', landable: true })],
-    tasks: [{ type: 'setup', label: 'Torenkraan volledig opbouwen' }, { type: 'deliver', loadId: 'pn', zoneId: 'z1' }],
-    wind: { base: 7, gust: 0.55, direction: 1, variable: true, cross: 0.25 }, parTime: 315, maxDamage: 20, requirements: { maxSwayDeg: 6 }, bounds: { minX: -30, maxX: 70 },
+    tasks: [{ type: 'deliver', loadId: 'pn', zoneId: 'z1' }],
+    wind: { base: 7, gust: 0.55, direction: 1, variable: true, cross: 0.25 }, parTime: 260, maxDamage: 20, requirements: { maxSwayDeg: 6 }, bounds: { minX: -30, maxX: 70 },
     reward: { money: 2400, xp: 400 },
-  },
-  {
+  }),
+  withTowerAssembly({
     id: 'm15', number: 15, chapter: 3, title: 'De top van de toren',
     briefing: 'Plaats het constructie-element op het montagepunt bovenop de liftkern. Tolerantie: 15 centimeter.',
     hint: 'Gebruik precisiebediening op de laatste meters. Een korte kabel slingert sneller maar minder ver.',
@@ -269,10 +270,10 @@ export const CHAPTER_3: MissionDef[] = [
     loads: [{ id: 'se', type: 'steelElement', x: 10, y: 0 }],
     zones: [zone('z1', 'Montagepunt', 35, 41, 0.15, { angleTolDeg: 3 })],
     obstacles: [building('core', 30, 12, 40, 'concrete', 'liftkern'), box('pad', 'support', 33.5, 40, 3, 1, { label: 'montagepunt', style: 'steel' })],
-    tasks: [{ type: 'setup', label: 'Torenkraan volledig opbouwen' }, { type: 'deliver', loadId: 'se', zoneId: 'z1' }],
-    wind: { base: 5, gust: 0.4, direction: -1 }, parTime: 315, maxDamage: 20, requirements: { maxSwayDeg: 4 }, bounds: { minX: -30, maxX: 70 },
+    tasks: [{ type: 'deliver', loadId: 'se', zoneId: 'z1' }],
+    wind: { base: 5, gust: 0.4, direction: -1 }, parTime: 260, maxDamage: 20, requirements: { maxSwayDeg: 4 }, bounds: { minX: -30, maxX: 70 },
     reward: { money: 3000, xp: 500, license: 'toren', certificate: 'Torenkraanlicentie' },
-  },
+  }),
 ];
 
 // ------------------------------------------------------------------ Hoofdstuk 4 — Industrie en precisie

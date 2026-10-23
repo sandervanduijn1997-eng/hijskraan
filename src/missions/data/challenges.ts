@@ -1,3 +1,4 @@
+import { withTowerAssembly } from './towerAssembly';
 import { getCrane } from '../../cranes/config/cranes';
 import type { CraneId } from '../../cranes/config/types';
 import type { ScoreMetrics } from '../runtime/scoring';
@@ -93,9 +94,10 @@ export function practiceMission(o: PracticeOptions): MissionDef {
   const loadX = Math.max(slewX + half + load.width / 2 + 1.5 - slewX, reach * 0.45) + slewX;
   const zoneX = Math.max(loadX + load.width + 3, slewX + reach);
   const startU = cfg.kind === 'tower' ? loadX - slewX : 0;
-  // torenkranen moeten ook in de vrije oefening eerst volledig worden opgebouwd
-  const needsBuild = cfg.kind === 'tower';
-  return {
+  // torenkranen moeten ook in de vrije oefening eerst volledig worden opgebouwd:
+  // zelfopbouwers met hun eigen procedure, de grote torenkraan met de mobiele hulpkraan
+  const needsBuild = cfg.kind === 'tower' && gb.setupType === 'selfErect';
+  const m: MissionDef = {
     id: 'practice',
     number: 0,
     chapter: 0,
@@ -120,4 +122,5 @@ export function practiceMission(o: PracticeOptions): MissionDef {
     reward: { money: 1, xp: 1 },
     bounds: { minX: -60, maxX: 90 },
   };
+  return gb.setupType === 'towerAssembly' ? withTowerAssembly(m) : m;
 }

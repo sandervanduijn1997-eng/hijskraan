@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { audio } from '../audio/audioEngine';
 import type { CraneInput } from '../cranes/controllers/craneInput';
+import type { CraneState } from '../cranes/models/craneState';
+import type { CraneGeometry } from '../cranes/models/kinematics';
+import { computeGeometry } from '../cranes/models/kinematics';
 import { emptyInput } from '../cranes/controllers/craneInput';
 import type { MissionDef } from '../missions/data/types';
 import { FIXED_DT, MAX_FRAME_DELTA, MAX_STEPS_PER_FRAME } from '../physics/constants';
 import { apexWorld } from '../physics/load/rigidBody';
 import type { SimEvent, SimOptions } from '../sim/simulation';
-import { Simulation } from '../sim/simulation';
+import { Simulation, hookWidth } from '../sim/simulation';
 import { lerp } from '../utils/math';
 import type { EdgeAction, InputManager } from '../game/input/inputManager';
 import { ENVIRONMENTS, SKIES } from '../game/render/palette';
@@ -58,6 +61,11 @@ export class World3D {
   private acc = 0;
   private demoT = 0;
   private crane: CraneModel;
+  /** Torenkraan in aanbouw (wordt na het overstappen de bediende kraan). */
+  private tower: CraneModel | null = null;
+  private erection: { state: CraneState; geom: CraneGeometry } | null = null;
+  /** Geparkeerde hulpkraan met haak en kabel. */
+  private parked: { model: CraneModel; hook: THREE.Group; rope: THREE.Line } | null = null;
   private world: WorldModel;
   private loads = new Map<string, { group: THREE.Group; inner: THREE.Group }>();
   private hook: THREE.Group;
@@ -99,8 +107,18 @@ export class World3D {
     this.scene.add(this.world.root);
 
     const livDef = LIVERIES[cfg.livery] ?? LIVERIES.standard;
-    this.crane = new CraneModel(this.sim.spec, livDef.make(this.sim.spec.cfg.visual.bodyColor, this.sim.spec.cfg.visual.accentColor), night);
-    this.scene.add(this.crane.root);
+    const ms = this.sim.missionSpec;
+    const missionModel = new CraneModel(ms, livDef.make(ms.cfg.visual.bodyColor, ms.cfg.visual.accentColor), night);
+    this.scene.add(missionModel.root);
+    if (this.sim.assisting) {
+      // eerst bedien je de hulpkraan; de torenkraan groeit mee met de montage
+      this.tower = missionModel;
+      const as = this.sim.spec;
+      this.crane = new CraneModel(as, LIVERIES.standard.make(as.cfg.visual.bodyColor, as.cfg.visual.accentColor), night);
+      this.scene.add(this.crane.root);
+      const st = this.sim.erectionState()!;
+      this.erection = { state: st, geom: computeGeometry(ms, st) };
+    } else this.crane = missionModel;
 
     for (const l of this.sim.loads) {
       const group = new THREE.Group();
@@ -110,15 +128,7 @@ export class World3D {
       this.scene.add(group);
       this.loads.set(l.id, { group, inner });
     }
-    this.hook = buildHook(this.sim.hookW, this.sim.hookH);
-    this.scene.add(this.hook);
-    const falls = this.sim.hookMassKg > 3000 ? 4 : this.sim.hookMassKg > 400 ? 2 : 1;
-    for (let i = 0; i < falls; i++) {
-      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x1d1f22 }));
-      l.frustumCulled = false;
-      this.ropes.push(l);
-      this.scene.add(l);
-    }
+    this.hook = this.buildHookMeshes();
     this.slings = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 8 }, () => new THREE.Vector3())), new THREE.LineBasicMaterial({ color: 0x2e86c1 }));
     this.slings.frustumCulled = false;
     this.scene.add(this.slings);
@@ -127,7 +137,7 @@ export class World3D {
     for (const z of m.zones) {
       const task = this.sim.tasks.find((t) => t.def.type === 'deliver' && t.def.zoneId === z.id);
       const lt = task && task.def.type === 'deliver' ? this.sim.loads.find((l) => l.id === (task.def as { loadId: string }).loadId)?.type : undefined;
-      const marker = new ZoneMarker(z.x, z.y, (lt?.width ?? 1) / 2, z.tolerance, z.zTolerance ?? 1, lt ? { w: lt.width, h: lt.height, d: Math.min(lt.depth, 6) } : undefined);
+      const marker = new ZoneMarker(z.x, z.y, (lt?.width ?? 1) / 2, z.tolerance, z.zTolerance ?? 1, lt ? { w: lt.width, h: lt.height, d: Math.min(lt.depth, 6) } : undefined, z.z ?? 0);
       this.zones.push(marker);
       this.scene.add(marker.root);
       const el = document.createElement('div');
@@ -145,6 +155,44 @@ export class World3D {
     }
     this.computeOverview(m);
     audio.setMachineActive(cfg.mode !== 'demo', pal.indoor ? 0.3 : 0.7);
+  }
+
+  /** Haakblok en kabelparten voor de bediende kraan. */
+  private buildHookMeshes(): THREE.Group {
+    for (const r of this.ropes) {
+      this.scene.remove(r);
+      r.geometry.dispose();
+    }
+    this.ropes = [];
+    const hook = buildHook(this.sim.hookW, this.sim.hookH);
+    this.scene.add(hook);
+    const falls = this.sim.hookMassKg > 3000 ? 4 : this.sim.hookMassKg > 400 ? 2 : 1;
+    for (let i = 0; i < falls; i++) {
+      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x1d1f22 }));
+      l.frustumCulled = false;
+      this.ropes.push(l);
+      this.scene.add(l);
+    }
+    return hook;
+  }
+
+  /** Overstappen: de torenkraan wordt de bediende kraan, de hulpkraan blijft geparkeerd staan. */
+  private onCraneSwitch(): void {
+    const sim = this.sim;
+    const p = sim.parked;
+    if (!this.tower || !p) return;
+    const hw = hookWidth(p.spec.gb.hookMassKg);
+    const hook = buildHook(hw, hw * 1.4);
+    const rope = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x1d1f22 }));
+    rope.frustumCulled = false;
+    this.scene.add(hook, rope);
+    this.parked = { model: this.crane, hook, rope };
+    this.crane = this.tower;
+    this.tower = null;
+    this.erection = null;
+    this.scene.remove(this.hook);
+    disposeGroup(this.hook);
+    this.hook = this.buildHookMeshes();
   }
 
   dispose(): void {
@@ -203,6 +251,7 @@ export class World3D {
       }
       if (steps >= MAX_STEPS_PER_FRAME) this.acc = 0;
       const ev = sim.drainEvents();
+      if (ev.some((e) => e.type === 'craneSwitch')) this.onCraneSwitch();
       if (ev.length) {
         this.handleFx(ev);
         this.hooks.onEvents(sim, ev);
@@ -235,18 +284,30 @@ export class World3D {
     const t = this.time / 1000;
     const cfg = sim.spec.cfg;
     this.crane.update(sim.crane, sim.geom, this.time);
+    if (this.tower && this.erection && sim.assembly) this.tower.update(this.erection.state, this.erection.geom, this.time, sim.assembly.build);
+    if (this.parked && sim.parked) {
+      const pk = sim.parked;
+      this.parked.model.update(pk.crane, pk.geom, this.time);
+      const tp = pk.geom.tip;
+      const hh = this.parked.hook.position;
+      hh.set(tp.x, tp.y - pk.crane.ropeLength, tp.z);
+      const rp = this.parked.rope.geometry.getAttribute('position') as THREE.BufferAttribute;
+      rp.setXYZ(0, tp.x, tp.y, tp.z);
+      rp.setXYZ(1, tp.x, hh.y + 0.3, tp.z);
+      rp.needsUpdate = true;
+    }
     this.world.update(t, sim.wind.x);
 
     // motorrook en stof bij rijden
     const st = this.hooks.settings();
     if (!this.paused && st.particles) {
       const exX = sim.geom.slewX - Math.cos(sim.crane.slew) * 2;
-      const exZ = -Math.sin(sim.crane.slew) * 2;
+      const exZ = sim.crane.baseZ - Math.sin(sim.crane.slew) * 2;
       this.fx.smoke(exX, cfg.visual.carrierHeight + 2.4, exZ, sim.crane.engine, sim.wind.x);
       this.dustTimer += dt;
       if (Math.abs(sim.crane.vel.drive) > 0.2 && this.dustTimer > 0.08) {
         this.dustTimer = 0;
-        this.fx.dust(sim.crane.baseX - Math.sign(sim.crane.vel.drive) * cfg.visual.carrierLength * 0.4, 0, 1.2, 2);
+        this.fx.dust(sim.crane.baseX - Math.sign(sim.crane.vel.drive) * cfg.visual.carrierLength * 0.4, 0, sim.crane.baseZ + 1.2, 2);
       }
     }
     this.fx.update(this.paused ? 0 : dt, sim.wind.x);
@@ -321,11 +382,14 @@ export class World3D {
       const task = sim.tasks.find((tk) => tk.def.type === 'deliver' && tk.def.zoneId === z.id && tk.status !== 'done') ?? sim.tasks.find((tk) => tk.def.type === 'deliver' && tk.def.zoneId === z.id);
       const active = task?.status === 'active';
       const done = !!task && task.status === 'done';
+      // montagestappen: alleen de huidige stap tonen
+      const stepOnly = task?.def.type === 'deliver' && !!task.def.inOrder;
+      this.zones[i].root.visible = !stepOnly || active;
       this.zones[i].setState(active, done, t);
       const lt = task && task.def.type === 'deliver' ? sim.loads.find((l) => l.id === (task.def as { loadId: string }).loadId)?.type : undefined;
-      const v = new THREE.Vector3(z.x, z.y + (lt?.height ?? 1) + 1.2, 0).project(cam);
+      const v = new THREE.Vector3(z.x, z.y + (lt?.height ?? 1) + 1.2, z.z ?? 0).project(cam);
       const el = this.labels[i];
-      const visible = v.z < 1 && this.cfg.mode !== 'demo';
+      const visible = v.z < 1 && this.cfg.mode !== 'demo' && (!stepOnly || active);
       el.style.display = visible ? '' : 'none';
       if (visible) {
         el.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -100%)`;
@@ -335,8 +399,8 @@ export class World3D {
 
     // camera
     const focus: FramePoint[] = [
-      { x: sim.crane.baseX - cfg.visual.carrierLength / 2 - 2, y: 0 },
-      { x: sim.crane.baseX + cfg.visual.carrierLength / 2 + 2, y: 0 },
+      { x: sim.crane.baseX - cfg.visual.carrierLength / 2 - 2, y: 0, z: sim.crane.baseZ },
+      { x: sim.crane.baseX + cfg.visual.carrierLength / 2 + 2, y: 0, z: sim.crane.baseZ },
       { x: tip.x, y: tip.y + 2, z: tip.z },
     ];
     const hp = sim.hookPoint();
@@ -356,7 +420,7 @@ export class World3D {
     const cu = cfg.kind === 'tower' ? 1.6 : 0.8;
     const cy = cfg.kind === 'tower' ? (sim.geom.segments.find((x) => x.kind === 'mast')?.y1 ?? 20) - 1.2 : cfg.visual.carrierHeight + 1.8;
     const cw = cfg.kind === 'tower' ? 1.7 : 1.85;
-    const cabPos = { x: sim.geom.slewX + cu * c - cw * s, y: cy, z: cu * s + cw * c };
+    const cabPos = { x: sim.geom.slewX + cu * c - cw * s, y: cy, z: sim.geom.slewZ + cu * s + cw * c };
     const yawOff = this.rig.yaw - 0.42;
     this.rig.setCab(cabPos, { x: hp.x + Math.sin(yawOff) * 5, y: hp.y, z: hp.z + Math.cos(yawOff) * 0 });
     this.rig.update(dt, focus, this.overviewPts);

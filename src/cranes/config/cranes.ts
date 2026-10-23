@@ -384,7 +384,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     classLabel: 'Torenkraan',
     kind: 'tower',
     carrier: 'towerBase',
-    description: 'Hoge, vaste torenkraan met 60 m giek en loopkat. Moet op de bouwplaats volledig worden gemonteerd: fundering, mastsecties, draaikrans, tegengiek, giek en ballast.',
+    description: 'Hoge, vaste torenkraan met 60 m giek en loopkat. Wordt op de bouwplaats gemonteerd met een mobiele hulpkraan (mastsecties, draaikrans, torenkop, tegengiek, ballast, giek) en klimt daarna zelf naar werkhoogte.',
     reference: {
       model: 'Potain MD-serie',
       publicSpecs: { type: 'bovendraaiende torenkraan met loopkat', kenmerk: 'grote werkstraal voor hoogbouw' },

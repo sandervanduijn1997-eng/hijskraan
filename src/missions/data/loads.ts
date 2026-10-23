@@ -19,7 +19,11 @@ export type LoadStyle =
   | 'craneParts'
   | 'truss'
   | 'testWeight'
-  | 'bricks';
+  | 'bricks'
+  | 'towerMast'
+  | 'towerSlewing'
+  | 'towerHead'
+  | 'towerJib';
 
 /** Lasttype. Afmetingen in m, massa in kg. Alle waarden zijn spelwaarden. */
 export interface LoadType {
@@ -89,6 +93,14 @@ export const LOADS: Record<string, LoadType> = {
   bridgeSpan: L({ id: 'bridgeSpan', name: 'Brugoverspanning', massKg: 165000, width: 30.0, height: 2.6, depth: 4.0, dragCoeff: 1.4, fragility: 0.45, landingSpeedLimit: 0.15, slingHeight: 10.0, liftPoints: '4 hijspunten + spreaderbalk', style: 'bridge', color: 0x7b7d7d }),
   criticalModule: L({ id: 'criticalModule', name: 'Uitzonderlijk zware module', massKg: 185000, width: 10.0, height: 6.0, depth: 6.0, dragCoeff: 1.3, fragility: 0.6, landingSpeedLimit: 0.15, slingHeight: 6.0, liftPoints: 'hijsbalk 4 punten', style: 'module', color: 0x5d6d7e }),
   offshoreModule: L({ id: 'offshoreModule', name: 'Offshore-energiemodule', massKg: 230000, width: 12.0, height: 8.0, depth: 8.0, comOffsetX: 0.3, dragCoeff: 1.4, fragility: 0.7, landingSpeedLimit: 0.12, slingHeight: 7.0, liftPoints: 'hijsframe 4 punten', style: 'module', color: 0xd35400 }),
+  // torenkraandelen voor de montage met een hulpkraan (maten passen bij de TC 160, zie towerErection.ts)
+  towerMast: L({ id: 'towerMast', name: 'Mastsectie torenkraan', massKg: 3200, width: 1.6, height: 6.25, depth: 1.6, dragCoeff: 0.7, fragility: 0.3, landingSpeedLimit: 0.25, slingHeight: 1.6, liftPoints: '4 stroppen aan de bovenste hoekstijlen', style: 'towerMast', color: 0xf0c419 }),
+  towerSlewing: L({ id: 'towerSlewing', name: 'Draaikrans met cabine', massKg: 9000, width: 2.4, height: 2.0, depth: 2.4, dragCoeff: 1.1, fragility: 0.5, landingSpeedLimit: 0.2, slingHeight: 2.4, liftPoints: '4 hijsogen', style: 'towerSlewing', color: 0xf0c419 }),
+  towerHead: L({ id: 'towerHead', name: 'Torenkop (A-bok)', massKg: 4000, width: 1.4, height: 7.0, depth: 1.4, dragCoeff: 0.7, fragility: 0.35, landingSpeedLimit: 0.2, slingHeight: 1.2, liftPoints: 'hijsoog in de top', style: 'towerHead', color: 0xf0c419 }),
+  towerCounterJib: L({ id: 'towerCounterJib', name: 'Tegengiek met lier', massKg: 7000, width: 16.4, height: 1.2, depth: 1.8, dragCoeff: 0.8, fragility: 0.35, landingSpeedLimit: 0.25, slingHeight: 4.0, liftPoints: '4 stroppen + stuurlijnen', style: 'towerJib', color: 0xf0c419 }),
+  towerJib: L({ id: 'towerJib', name: 'Giek 60 m (voorgemonteerd)', massKg: 14000, width: 58.4, height: 1.5, depth: 1.5, dragCoeff: 0.6, fragility: 0.35, landingSpeedLimit: 0.2, slingHeight: 6.0, liftPoints: 'hijsbalk op het zwaartepunt + stuurlijnen', style: 'towerJib', color: 0xf0c419 }),
+  towerBallast6: L({ id: 'towerBallast6', name: 'Ballastblok 6 t', massKg: 6000, width: 1.1, height: 2.4, depth: 2.2, dragCoeff: 1.0, fragility: 0.05, landingSpeedLimit: 0.3, slingHeight: 1.4, liftPoints: '2 hijsogen', style: 'counterweight', color: 0x8c9096 }),
+  towerBallast9: L({ id: 'towerBallast9', name: 'Ballastblok 9 t', massKg: 9000, width: 1.1, height: 2.4, depth: 2.2, dragCoeff: 1.0, fragility: 0.05, landingSpeedLimit: 0.3, slingHeight: 1.4, liftPoints: '2 hijsogen', style: 'counterweight', color: 0x8c9096 }),
 };
 
 export const LOAD_IDS = Object.keys(LOADS);

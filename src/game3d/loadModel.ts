@@ -112,6 +112,35 @@ export function buildLoad(t: LoadType): THREE.Group {
       }
       break;
     }
+    case 'towerMast': {
+      const tt = trussUnit(c, 3, 0.1, 0.05);
+      placeBetween(tt, { x: 0, y: -h / 2, z: 0 }, { x: 0, y: h / 2, z: 0 }, w, d);
+      add(tt);
+      break;
+    }
+    case 'towerSlewing': {
+      add(box(w, h * 0.35, d, 0x3b3f45, 0, -h / 2 + h * 0.175, 0), box(w * 0.9, h * 0.3, d * 0.9, c, 0, 0, 0));
+      add(box(1.9, h * 0.65, 1.5, 0xe9edf0, w / 2 + 0.6, h * 0.05, d / 2 - 0.75), box(0.05, h * 0.4, 1.2, 0x6f97b8, w / 2 + 1.56, h * 0.1, d / 2 - 0.75));
+      break;
+    }
+    case 'towerHead': {
+      // vier stijlen die naar de top toe samenkomen
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const leg = box(1, 1, 1, c);
+          placeBetween(leg, { x: (sx * w) / 2 - sx * 0.1, y: -h / 2, z: (sz * d) / 2 - sz * 0.1 }, { x: 0, y: h / 2 - 0.3, z: 0 }, 0.14, 0.14);
+          add(leg);
+        }
+      }
+      add(box(0.5, 0.6, 0.5, 0x3b3f45, 0, h / 2 - 0.3, 0), box(w, 0.15, d, shadeHex(c, 0.8), 0, -h / 2 + 0.08, 0));
+      break;
+    }
+    case 'towerJib': {
+      const tt = trussUnit(c, Math.max(4, Math.round(w / 2.2)), 0.1, 0.05);
+      placeBetween(tt, { x: -w / 2, y: 0, z: 0 }, { x: w / 2, y: 0, z: 0 }, h, d);
+      add(tt);
+      break;
+    }
     default:
       add(box(w, h, d, c, 0, 0, 0));
   }

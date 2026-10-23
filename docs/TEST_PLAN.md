@@ -33,6 +33,11 @@ npm run build        # typecheck + productiebuild
 | kantelen | RT-kraan op modder met zware module: kantelt (normaal) en kantelt niet (oefenen) |
 | volgorde | missie 24: alleen de eerste levering is actief |
 | opbouwprocedure | missie 11: bediening geblokkeerd tot de zelfopbouw klaar is |
+| torenmontage: start | missie 12 begint in de hulpkraan (z = −14); alleen de voetsectie staat |
+| torenmontage: volgorde | alleen het volgende deel is actief; volgorde mast → draaikrans → torenkop → tegengiek → ballast 1 → giek → ballast 2 |
+| torenmontage: ballast | momentgrens wordt met de juiste volgorde nooit overschreden, met elke foute volgorde wel |
+| torenmontage: overstappen en klimmen | na transportstand wordt de torenkraan bediend; klimmen blokkeert bewegingen, de haak blijft op hoogte, daarna volle capaciteit |
+| torenmontage gespeeld | de missiebot speelt missie 12 (oefenen) volledig met besturingsinvoer: 9 montagehijsen in 3D, overstappen, klimmen, kubel afleveren |
 | pauze | zonder stappen verandert de toestand niet |
 
 ## End-to-end (`tests/e2e/game.spec.ts`, Playwright)

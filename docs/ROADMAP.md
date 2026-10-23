@@ -29,6 +29,7 @@
 - **Kabel** detecteert contact met obstakels, maar wikkelt er niet omheen en loopt niet over randen.
 - **Obstakels** zijn rechthoeken (AABB) met een diepte; geen schuine of ronde vormen. Water (rivier/haven) is visueel; de bodem is vlak.
 - **Torenkranen** zijn verankerd (geen kantelmodel, wel een structurele grens); er is geen weathervaning of wind-stopprocedure.
+- **Torenmontage** is getest met de missiebot: op Oefenen slagen 12, 13 en 15 volledig; op Normaal is de montage in alle vier de missies binnen ca. 900 s klaar, maar loopt de bot daarna vast bij het neerzetten met de torenkraan (bekende zwakte van de bot-servo, niet van de missie). De montage duurt ca. 12–15 minuten en is nog niet door een mens gespeeld.
 - **Referentiespecificaties** zijn afgeronde, publiek gecommuniceerde kopcijfers en niet geverifieerd tegen officiële lastdiagrammen. Alle lastdiagrammen zijn afgeleid uit het spelmodel.
 - **Controller-ondersteuning** is architectonisch voorbereid (`InputManager.addAxisSource`), maar nog niet gebouwd.
 - **Desktopdistributie** (Electron/Tauri) is nog niet ingericht.
@@ -62,7 +63,7 @@
 - Lastgieren (yaw) met taglines als bedienbaar element.
 - Kabel die over randen loopt en kan haken; kabelslijtage.
 - Ondergrond met wegzakkende stempels (bodemdruk per stempel, kraanmatten als plaatsbaar object).
-- Torenkraan: weathervaning (vrij zwenken bij storm), klimmen van de mast, verankering aan het gebouw.
+- Torenkraan: weathervaning (vrij zwenken bij storm), verankering aan het gebouw, klimmen waarbij de kraan de mastsecties zelf in de klimkooi hijst. (Montage met een hulpkraan en zelf klimmen met B zijn er al.)
 - Luffing-jib-torenkraan en super-lift (derrick-mast) voor de heavy-lift rupskraan.
 - Echte rijfysica voor rupsen en banden op hellingen; transport van kraanonderdelen per vrachtwagen.
 

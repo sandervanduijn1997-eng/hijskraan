@@ -255,15 +255,31 @@ class Bot {
         yield* this.deployOutriggers();
       } else if (task.type === 'deliver') {
         if (needOutriggers() && sim.support.mode !== 'outriggers') yield* this.deployOutriggers();
-        yield* this.deliver(task);
+        if (task.effect?.type === 'towerPart') yield* this.mount3D(task);
+        else yield* this.deliver(task);
+      } else if (task.type === 'switchCrane') {
+        this.phase = 'overstappen';
+        while ((sim.tasks[idx].status as string) !== 'done') yield emptyInput();
       } else if (task.type === 'stow') {
         this.phase = 'transportstand';
+        // hulpkraan bij een torenmontage: eerst van de toren weg naar voren zwenken, dan pas de giek laten zakken
+        if (sim.assisting) {
+          for (let k = 0; k < 60 * 120; k++) {
+            const i = emptyInput();
+            const err = wrapAngle(0 - sim.crane.slew);
+            i.slew = this.servo('slew', err, 0.7, 0.0005);
+            this.hoistTo(sim.geom.tipHeight - this.gb.ropeMin - sim.hookH - 0.5, i);
+            if (Math.abs(err) < 0.003 && Math.abs(sim.crane.vel.slew) < 0.003) break;
+            yield i;
+          }
+        }
         for (;;) {
           const i = emptyInput();
           const t: Targets = sim.spec.cfg.kind === 'tower' ? { trolley: this.gb.trolleyMin ?? 0 } : { boomAngle: this.gb.boomAngleMinDeg * DEG + 0.01 };
           if (sim.spec.cfg.kind === 'telescopic') t.boomLength = this.gb.boomMin;
           const a = this.drive(t, i);
-          const b = this.hoistTo(sim.geom.tipHeight - this.gb.ropeMin - sim.hookH - 0.5, i);
+          // haak tot vlak onder de giekkop: nooit een doel onder de grond kiezen (dan viert de lier juist)
+          const b = this.hoistTo(Math.max(0.3, sim.geom.tipHeight - this.gb.ropeMin - sim.hookH - 0.2), i);
           if ((sim.tasks[idx].status as string) === 'done') break;
           yield i;
           void a;
@@ -451,6 +467,175 @@ class Bot {
 
   private offF = 0;
 
+  // ------------------------------------------------------------------ montage in 3D (hulpkraan)
+
+  /** Straal en draaihoek vanaf de draaias naar (x, z). */
+  private polar(x: number, z: number): { u: number; a: number } {
+    const g = this.sim.geom;
+    return { u: Math.hypot(x - g.slewX, z - g.slewZ), a: Math.atan2(z - g.slewZ, x - g.slewX) };
+  }
+
+  /** Tip naar boven (x, z) op hoogte tipY (telescoopkraan). Geeft true als de stand bereikt is. */
+  private tipTo3D(x: number, z: number, tipY: number, inp: CraneInput, maxCmd = 0.7): boolean {
+    const p = this.polar(x, z);
+    const ik = solveBoomIK(this.sim.spec, p.u, tipY);
+    let err = wrapAngle(p.a - this.sim.crane.slew);
+    // niet met de giek over de toren in aanbouw zwenken: dan de andere kant om (achterlangs)
+    const asm = this.sim.assembly;
+    if (asm && !asm.switched) {
+      const aT = this.polar(asm.layout.x, asm.layout.z).a;
+      const rel = wrapAngle(aT - this.sim.crane.slew);
+      const crosses = Math.sign(rel) === Math.sign(err) && Math.abs(rel) < Math.abs(err) - 0.2 && Math.abs(rel) > 0.2;
+      if (crosses) err -= Math.sign(err) * Math.PI * 2;
+    }
+    inp.slew = this.servo('slew', err, maxCmd, 0.0004);
+    const slewOk = Math.abs(err) < 0.0015 && Math.abs(this.sim.crane.vel.slew) < 0.003;
+    const boomOk = this.drive({ boomAngle: ik.angle, boomLength: ik.length }, inp, maxCmd);
+    return slewOk && boomOk;
+  }
+
+  /** Hoogste bovenkant van obstakels en lasten in het gebied tussen twee punten (x, z). */
+  private top3D(x0: number, z0: number, x1: number, z1: number, hw: number, hd: number, skip: LoadRuntime): number {
+    const lx = Math.min(x0, x1) - hw - 0.3;
+    const hx = Math.max(x0, x1) + hw + 0.3;
+    const lz = Math.min(z0, z1) - hd - 0.3;
+    const hz = Math.max(z0, z1) + hd + 0.3;
+    let top = 0;
+    for (const c of this.sim.colliders) {
+      if (c.kind === 'ceiling' || c.kind === 'crane') continue;
+      if (c.maxX < lx || c.minX > hx || c.maxZ < lz || c.minZ > hz) continue;
+      top = Math.max(top, c.maxY);
+    }
+    for (const l of this.sim.loads) {
+      if (l === skip || l.status === 'consumed') continue;
+      const b = l.cb.body;
+      if (b.pos.x + b.halfW < lx || b.pos.x - b.halfW > hx || b.pos.z + b.depth / 2 < lz || b.pos.z - b.depth / 2 > hz) continue;
+      top = Math.max(top, b.pos.y + b.halfH);
+    }
+    return top;
+  }
+
+  /** Torenkraandeel oppakken en monteren met de hulpkraan, zoals een machinist: hoog genoeg, uitslingeren, precies plaatsen. */
+  private *mount3D(task: Extract<TaskDef, { type: 'deliver' }>): Generator<CraneInput> {
+    const sim = this.sim;
+    const load = sim.loads.find((l) => l.id === task.loadId)!;
+    const zone = sim.mission.zones.find((z) => z.id === task.zoneId)!;
+    const zz = zone.z ?? 0;
+    const idx = sim.tasks.findIndex((t) => t.def === task);
+    const lt = load.type;
+    const ropeMin = this.gb.ropeMin;
+    const hookH = sim.hookH;
+    const done = () => (sim.tasks[idx].status as string) === 'done' || sim.outcome !== 'running';
+    while (sim.tasks[idx].status === 'pending') yield emptyInput();
+
+    // 1. lege haak omhoog en boven het hijspunt
+    const sp = sim.slingPoint(load);
+    const hp0 = sim.hookPoint();
+    const emptyClear = Math.max(sp.y + 0.8, this.top3D(hp0.x, hp0.z, sp.x, sp.z, 0.5, 0.5, load) + 1.5);
+    this.phase = `${load.id}: naar de last`;
+    for (let k = 0; k < 60 * 120; k++) {
+      const i = emptyInput();
+      const tipY = emptyClear + hookH + ropeMin + 1;
+      const hookOk = this.hoistTo(Math.min(emptyClear, sim.geom.tipHeight - ropeMin - hookH - 0.3), i);
+      const high = sim.hookPoint().y > emptyClear - 0.6;
+      const at = high ? this.tipTo3D(sp.x, sp.z, tipY, i) : this.tipTo3D(sim.geom.tip.x, sim.geom.tip.z, Math.max(tipY, sim.geom.tipHeight), i);
+      if (at && hookOk && high && sim.swayDeg < 1) break;
+      yield i;
+    }
+    // 2. zakken en aanslaan
+    this.phase = `${load.id}: aanslaan`;
+    for (let k = 0; k < 60 * 120 && !sim.attached; k++) {
+      const i = emptyInput();
+      const p = sim.slingPoint(load);
+      this.tipTo3D(p.x, p.z, sim.geom.tipHeight, i, 0.4);
+      this.hoistTo(p.y + 0.15, i, 0.6);
+      if (sim.attachCandidate() === load) {
+        sim.toggleRigging();
+        break;
+      }
+      yield i;
+    }
+    if (!sim.attached) {
+      yield* this.giveUp(`${load.id}: kon niet aanslaan`);
+      return;
+    }
+    // 3. heffen tot boven alles tussen hier en de montagepositie
+    const b = load.cb.body;
+    const clear = this.top3D(b.pos.x, b.pos.z, zone.x, zz, b.halfW, b.depth / 2, load) + 0.6;
+    const carryBottom = Math.max(clear, zone.y + (task.hold ? 1.6 : 0.6));
+    const hookY = carryBottom + lt.height + lt.slingHeight;
+    const tipY = hookY + hookH + ropeMin + 0.6;
+    this.phase = `${load.id}: heffen`;
+    for (let k = 0; k < 60 * 180; k++) {
+      const i = emptyInput();
+      if (sim.outcome !== 'running') return;
+      const ok = this.hoistTo(hookY, i);
+      this.tipTo3D(b.pos.x, b.pos.z, Math.max(tipY, sim.geom.tipHeight), i, 0.35);
+      if (ok) break;
+      yield i;
+    }
+    // 4. naar de montagepositie; giek en tegengiek eerst iets buiten hun plek (van de toren af) laten aankomen
+    const tx = sim.assembly?.layout.x ?? zone.x;
+    const ax = task.hold ? zone.x + Math.sign(zone.x - tx) * 4 : zone.x;
+    this.phase = `${load.id}: naar montagepositie`;
+    for (let k = 0; k < 60 * 240; k++) {
+      const i = emptyInput();
+      if (sim.outcome !== 'running') return;
+      this.hoistTo(hookY, i);
+      if (this.tipTo3D(ax, zz, tipY, i, task.hold ? 0.3 : 0.5)) break;
+      yield i;
+    }
+    // uitslingeren buiten de plek, dan langzaam inschuiven
+    for (let k = 0; k < 60 * 60 && task.hold; k++) {
+      const i = emptyInput();
+      this.hoistTo(hookY, i);
+      this.tipTo3D(ax, zz, tipY, i, 0.3);
+      if (sim.swayDeg < 0.3) break;
+      yield i;
+    }
+    // 5. uitslingeren en fijn uitlijnen (vaste afwijking compenseren)
+    this.phase = `${load.id}: uitlijnen`;
+    let offX = 0;
+    let offZ = 0;
+    for (let k = 0; k < 60 * 120; k++) {
+      const i = emptyInput();
+      const bc = loadBottomCenter(b);
+      const ex = bc.x - zone.x;
+      const ez = bc.z - zz;
+      if (sim.swayDeg < 0.5) {
+        offX += ex * (1 / 60 / 1.5);
+        offZ += ez * (1 / 60 / 1.5);
+      }
+      this.hoistTo(hookY, i);
+      this.tipTo3D(zone.x - offX, zz - offZ, tipY, i, 0.3);
+      if (k > 180 && sim.swayDeg < 0.25 && Math.abs(ex) < zone.tolerance * 0.35 && Math.abs(ez) < (zone.zTolerance ?? 1) * 0.35) break;
+      yield i;
+    }
+    // 6. plaatsen: neerzetten op het vlak, of in de lucht stil houden tot de monteurs klaar zijn
+    this.phase = `${load.id}: ${task.hold ? 'vasthouden' : 'neerzetten'}`;
+    for (let k = 0; k < 60 * 240; k++) {
+      if (done()) return;
+      const i = emptyInput();
+      const bc = loadBottomCenter(b);
+      this.tipTo3D(zone.x - offX, zz - offZ, sim.geom.tipHeight, i, 0.25);
+      const above = bc.y - zone.y;
+      if (task.hold) {
+        i.precision = Math.abs(above) < 0.6;
+        i.hoist = this.servo('hoist', -above, i.precision ? 1 : 0.6, 0.01);
+        if (Math.abs(above) < 0.05) i.hoist = 0;
+      } else if (load.cb.supports.size > 0 || b.sleeping) {
+        i.precision = true;
+        i.hoist = -1;
+      } else if (above > 1.2) i.hoist = this.servo('hoist', -(above - 0.9), 1, 0.02);
+      else if (sim.swayDeg < 0.6) {
+        i.precision = true;
+        i.hoist = -1;
+      }
+      yield i;
+    }
+    if (!done()) yield* this.giveUp(`${load.id}: niet geplaatst (${sim.placementHint?.reasons.join(', ')})`);
+  }
+
   /**
    * Doel-x voor de giekpunt zodat de last boven x komt te staan:
    * een langzaam gefilterde vaste afwijking (excentrisch zwaartepunt) wordt gecompenseerd, en de tip
@@ -609,6 +794,6 @@ export function playMission(m: MissionDef, difficulty: DifficultyProfile, maxSec
     collisions: sim.metrics.collisions,
     maxSway: Math.round(sim.metrics.maxSwayDeg * 10) / 10,
     stuck: bot.phase,
-    craneId: sim.spec.cfg.id,
+    craneId: sim.missionSpec.cfg.id,
   };
 }

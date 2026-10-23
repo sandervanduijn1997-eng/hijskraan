@@ -2,6 +2,7 @@ import type { Vec3 } from '../../utils/math';
 import { DEG, clamp, lerp } from '../../utils/math';
 import type { ResolvedCrane } from './craneSpec';
 import type { CraneState } from './craneState';
+import { TOWER_ERECTION_SECTIONS, TOWER_MAST_SECTIONS, TOWER_SLEW_UNIT_H } from './towerErection';
 
 export type SegmentKind = 'boom' | 'boomSection' | 'jib' | 'mast' | 'counterJib' | 'arm1' | 'arm2' | 'tele' | 'column';
 
@@ -17,8 +18,9 @@ export interface Segment {
 }
 
 export interface CraneGeometry {
-  /** Wereld-x van de draaias. */
+  /** Wereld-x en -z van de draaias. */
   slewX: number;
+  slewZ: number;
   /** Ophangpunt kabel in het draaiframe. */
   tipU: number;
   tipY: number;
@@ -48,17 +50,11 @@ export const SELF_ERECT_STAGES = [
   { from: 0.75, to: 1, label: 'Giek uitklappen' },
 ] as const;
 
-/** Montage van een (bovendraaiende) torenkraan, stap voor stap. */
-export const TOWER_STAGES = [
-  { from: 0, to: 0.1, label: 'Fundering en onderstel plaatsen' },
-  { from: 0.1, to: 0.5, label: 'Mastsecties stapelen' },
-  { from: 0.5, to: 0.6, label: 'Draaikrans en cabine monteren' },
-  { from: 0.6, to: 0.72, label: 'Tegengiek monteren' },
-  { from: 0.72, to: 0.9, label: 'Giek monteren' },
-  { from: 0.9, to: 1, label: 'Ballast plaatsen en testen' },
-] as const;
-
-export const TOWER_MAST_SECTIONS = 8;
+/** Klimmen van een torenkraan: aantal mastsecties dat bij voortgang p staat (fractioneel tijdens het klimmen). */
+export function towerClimbSections(p: number): number {
+  const climb = TOWER_MAST_SECTIONS - TOWER_ERECTION_SECTIONS;
+  return TOWER_ERECTION_SECTIONS + clamp(p, 0, 1) * climb;
+}
 
 /** Heeft deze kraan een opbouwprocedure die je met B uitvoert? */
 export const hasSetupProcedure = (spec: ResolvedCrane): boolean =>
@@ -66,7 +62,11 @@ export const hasSetupProcedure = (spec: ResolvedCrane): boolean =>
 
 /** Leesbare naam van de huidige opbouwstap. */
 export function setupStageLabel(spec: ResolvedCrane, p: number): string {
-  const list: readonly { to: number; label: string }[] | null = spec.gb.setupType === 'towerAssembly' ? TOWER_STAGES : spec.gb.setupType === 'selfErect' ? SELF_ERECT_STAGES : null;
+  if (spec.gb.setupType === 'towerAssembly') {
+    const k = Math.min(TOWER_MAST_SECTIONS, Math.floor(towerClimbSections(p) + 1e-9) + 1);
+    return `Klimmen: mastsectie ${k}/${TOWER_MAST_SECTIONS} inbouwen`;
+  }
+  const list: readonly { to: number; label: string }[] | null = spec.gb.setupType === 'selfErect' ? SELF_ERECT_STAGES : null;
   if (!list) return `Giekmontage ${Math.round(p * 100)} %`;
   let i = list.findIndex((x) => p < x.to);
   if (i < 0) i = list.length - 1;
@@ -156,22 +156,17 @@ export function computeGeometry(spec: ResolvedCrane, s: CraneState): CraneGeomet
       const J = gb.jibLength ?? 30;
       const CJ = gb.counterJibLength ?? 8;
       let mastH = H;
-      let jibLen = J;
-      let cjLen = CJ;
+      const jibLen = J;
+      const cjLen = CJ;
       if (gb.setupType === 'selfErect' && s.setupProgress < 1) {
         const p = s.setupProgress;
         mastAngle = lerp(0, Math.PI / 2, clamp((p - 0.4) / 0.35, 0, 1));
         jibUnfold = clamp((p - 0.75) / 0.25, 0, 1);
       }
       if (gb.setupType === 'towerAssembly' && s.setupProgress < 1) {
-        // mast groeit per sectie; daarna tegengiek en giek, ten slotte ballast
-        const p = s.setupProgress;
-        const built = Math.max(1, Math.floor(clamp((p - 0.1) / 0.4, 0, 1) * TOWER_MAST_SECTIONS + 1e-9));
-        mastH = (H * Math.min(built, TOWER_MAST_SECTIONS)) / TOWER_MAST_SECTIONS;
-        cjLen = CJ * clamp((p - 0.6) / 0.12, 0, 1);
-        jibLen = J * clamp((p - 0.72) / 0.18, 0, 1);
-        // de giek wordt horizontaal gemonteerd (niet opgevouwen zoals bij zelfopbouw)
-        jibUnfold = 1;
+        // de kraan staat op montagehoogte en klimt zelf: de mast groeit sectie voor sectie onder de draaikrans
+        const secH = (H - TOWER_SLEW_UNIT_H) / TOWER_MAST_SECTIONS;
+        mastH = towerClimbSections(s.setupProgress) * secH + TOWER_SLEW_UNIT_H;
       }
       const baseH = spec.cfg.visual.carrierHeight;
       // mast ligt opgevouwen naar achteren (−u) en komt omhoog
@@ -223,7 +218,7 @@ export function computeGeometry(spec: ResolvedCrane, s: CraneState): CraneGeomet
   const sn = Math.sin(s.slew);
   let tx = slewX + tipU * cs;
   let ty = tipY;
-  const tz = tipU * sn;
+  const tz = s.baseZ + tipU * sn;
   // kanteling rond de voorste kantellijn (in de richting van de giek)
   const dir = cs >= 0 ? 1 : -1;
   const fp = spec.gb.footprintOutriggers ?? spec.gb.footprintRetracted;
@@ -238,6 +233,7 @@ export function computeGeometry(spec: ResolvedCrane, s: CraneState): CraneGeomet
   }
   return {
     slewX,
+    slewZ: s.baseZ,
     tipU,
     tipY,
     tip: { x: tx, y: ty, z: tz },
@@ -263,8 +259,8 @@ export function segmentToWorld(g: CraneGeometry, slew: number, seg: Segment): { 
     y0: seg.y0,
     x1: g.slewX + seg.u1 * c,
     y1: seg.y1,
-    z0: seg.u0 * s,
-    z1: seg.u1 * s,
+    z0: g.slewZ + seg.u0 * s,
+    z1: g.slewZ + seg.u1 * s,
   };
 }
 

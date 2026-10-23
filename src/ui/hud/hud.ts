@@ -4,7 +4,9 @@ import { hasSetupProcedure, setupStageLabel } from '../../cranes/models/kinemati
 import { formatMoney } from '../../economy/economy';
 import { GROUND_LABEL, groundAt } from '../../physics/ground';
 import type { ActionId } from '../../save/saveSystem';
+import type { ResolvedCrane } from '../../cranes/models/craneSpec';
 import type { Simulation } from '../../sim/simulation';
+import { ERECTION_MOMENT_LIMIT_TM } from '../../sim/simulation';
 import { RAD, clamp } from '../../utils/math';
 import { controlHints, keyLabel } from '../../game/input/inputManager';
 import { h, kbd, setClass, setText } from '../dom';
@@ -41,7 +43,11 @@ export class Hud {
   private toastTimer = 0;
   private outrigEls: HTMLElement[] = [];
 
+  /** De kraan waarvoor deze HUD is opgebouwd (na het overstappen wordt de HUD opnieuw gemaakt). */
+  readonly spec: ResolvedCrane;
+
   constructor(readonly sim: Simulation, actions: HudActions) {
+    this.spec = sim.spec;
     const E = (k: string, cls = '', text = '') => (this.el[k] = h('span', { class: cls }, text));
     this.tasksEl = h('ul', { class: 'tasks' });
     this.plan = h('canvas', { class: 'planview', width: 320, height: 170 });
@@ -63,7 +69,7 @@ export class Hud {
         'div',
         { class: 'hud-mission box' },
         h('div', { class: 'title' }, sim.mission.number > 0 ? `${sim.mission.number}. ${sim.mission.title}` : sim.mission.title),
-        h('div', { class: 'crane' }, `${cfg.name} · ${cfg.classLabel}`),
+        h('div', { class: 'crane' }, sim.assisting ? `Hulpkraan: ${cfg.name} · montage ${sim.missionSpec.cfg.name}` : `${cfg.name} · ${cfg.classLabel}`),
         this.tasksEl,
         E('timer', 'timer'),
         (this.el.setup = h('div', { class: 'setup-bar', style: 'display:none' }, (this.el.setupLbl = h('div', { style: 'font-size:.8em' })), h('div', { class: 'bar' }, (this.el.setupFill = h('div', { class: 'fill' }))))),
@@ -152,13 +158,27 @@ export class Hud {
     } else setText(this.el.timer, `⏱ ${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, '0')}`);
     // opbouw
     const needsSetup = hasSetupProcedure(sim.spec) && sim.crane.setupProgress < 1;
-    this.el.setup.style.display = needsSetup || sim.outriggerAuto.outriggerAuto !== 'none' ? '' : 'none';
-    if (needsSetup) {
+    const holdTask = sim.tasks.find((t) => t.status === 'active' && t.def.type === 'deliver' && t.def.hold && t.hold > 0);
+    this.el.setup.style.display = needsSetup || sim.assisting || sim.outriggerAuto.outriggerAuto !== 'none' ? '' : 'none';
+    if (holdTask && holdTask.def.type === 'deliver' && holdTask.def.hold) {
+      setText(this.el.setupLbl, `Stil houden — monteurs zetten vast… ${holdTask.hold.toFixed(1)} / ${holdTask.def.hold} s`);
+      this.el.setupFill.style.width = `${clamp(holdTask.hold / holdTask.def.hold, 0, 1) * 100}%`;
+      setClass(this.el.setupFill, 'fill');
+    } else if (sim.assisting) {
+      // balans van de toren in aanbouw: daarom eerst één ballastblok, dan de giek, dan de rest
+      const m = sim.towerMomentTm();
+      const f = Math.abs(m) / ERECTION_MOMENT_LIMIT_TM;
+      setText(this.el.setupLbl, `Torenbalans ${m >= 0 ? '+' : '−'}${Math.abs(m).toFixed(0)} tm ${m > 5 ? '(naar tegengiek)' : m < -5 ? '(naar giek)' : '(in balans)'} · grens ${ERECTION_MOMENT_LIMIT_TM} tm`);
+      this.el.setupFill.style.width = `${clamp(f, 0, 1) * 100}%`;
+      setClass(this.el.setupFill, f >= 1 ? 'fill d' : f >= 0.85 ? 'fill c' : 'fill');
+    } else if (needsSetup) {
+      setClass(this.el.setupFill, 'fill');
       const p = sim.crane.setupProgress;
       const label = `${setupStageLabel(sim.spec, p)} — houd B`;
       setText(this.el.setupLbl, label);
       this.el.setupFill.style.width = `${p * 100}%`;
     } else if (sim.outriggerAuto.outriggerAuto !== 'none') {
+      setClass(this.el.setupFill, 'fill');
       const avg = (sim.crane.outriggerBeam.reduce((a, b) => a + b, 0) + sim.crane.outriggerJack.reduce((a, b) => a + b, 0)) / Math.max(1, sim.crane.outriggerBeam.length * 2);
       setText(this.el.setupLbl, sim.outriggerAuto.outriggerAuto === 'deploy' ? 'Stempels worden uitgezet…' : 'Stempels worden ingehaald…');
       this.el.setupFill.style.width = `${avg * 100}%`;
@@ -231,6 +251,10 @@ export class Hud {
       if (cand) prompt = `${rig} — ${cand.type.name} aanslaan`;
       else if (sim.attached && (sim.attached.cb.supports.size > 0 || sim.attached.cb.body.sleeping) && sim.rope.slack) prompt = `${rig} — afkoppelen`;
       else if (ctx.outriggerMode) prompt = 'STEMPELMODUS — 1–4 kies stempel, 0 = alle';
+      else if (sim.assisting && sim.attached && sim.placementHint && !sim.placementHint.valid) {
+        const ph = sim.placementHint;
+        if (Math.abs(ph.dx) < 3 && Math.abs(ph.dy) < 3 && Math.abs(ph.dz) < 3) prompt = `Montage: Δx ${ph.dx.toFixed(2)} · Δy ${ph.dy.toFixed(2)} · Δz ${ph.dz.toFixed(2)} m — ${ph.reasons[0]}`;
+      }
     }
     this.el.prompt.style.display = prompt ? '' : 'none';
     setText(this.el.prompt, prompt);
@@ -264,7 +288,7 @@ export class Hud {
     const cx = W / 2;
     const cz = H / 2;
     const X = (x: number) => cx + (x - g.slewX) * scale;
-    const Z = (z: number) => cz + z * scale;
+    const Z = (z: number) => cz + (z - g.slewZ) * scale;
     c.strokeStyle = '#2a2f36';
     c.lineWidth = 1;
     for (let r = 5; r < reach * 1.3; r += 5) {
@@ -286,12 +310,12 @@ export class Hud {
       c.strokeStyle = t ? '#f2b705' : '#5b616a';
       c.lineWidth = 2;
       const zt = z.zTolerance ?? 1;
-      c.strokeRect(X(z.x - z.tolerance), Z(-zt), z.tolerance * 2 * scale, zt * 2 * scale);
+      c.strokeRect(X(z.x - z.tolerance), Z((z.z ?? 0) - zt), z.tolerance * 2 * scale, zt * 2 * scale);
     }
     // onderwagen
     const half = sim.spec.cfg.visual.carrierLength / 2;
     c.fillStyle = '#3b4048';
-    c.fillRect(X(sim.crane.baseX - half), Z(-1.3), half * 2 * scale, 2.6 * scale);
+    c.fillRect(X(sim.crane.baseX - half), Z(sim.crane.baseZ - 1.3), half * 2 * scale, 2.6 * scale);
     for (let i = 0; i < sim.spec.gb.outriggerCount; i++) {
       const p = outriggerPad(sim.spec, sim.crane, i);
       c.fillStyle = sim.crane.outriggerJack[i] >= 0.999 ? '#36c172' : '#f2b705';
