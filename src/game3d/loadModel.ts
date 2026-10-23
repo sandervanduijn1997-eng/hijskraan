@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { LoadType } from '../missions/data/loads';
 import { box, cylinder, mat, shadeHex, trussUnit, placeBetween } from './kit';
+import { buildHookBlock } from './cabs';
 
 /**
  * Low-poly 3D-model van een last. Het model is opgebouwd rond het geometrische midden;
@@ -154,16 +155,7 @@ export function buildLoad(t: LoadType): THREE.Group {
   return g;
 }
 
-/** Haakblok met schijfkast en haak. */
+/** Haakblok met zijplaten, kabelschijven en haak (aantal schijven volgt de grootte). */
 export function buildHook(w: number, h: number): THREE.Group {
-  const g = new THREE.Group();
-  g.add(box(w, h * 0.6, w * 0.8, 0xf2b705, 0, h * 0.15, 0), box(w * 0.85, h * 0.2, w * 0.82, 0x2b2f36, 0, h * 0.45, 0));
-  const shank = cylinder(w * 0.1, h * 0.25, 0x3b3f45, 6);
-  shank.position.y = -h * 0.25;
-  const hook = new THREE.Mesh(new THREE.TorusGeometry(w * 0.22, w * 0.07, 4, 8, Math.PI * 1.4), mat(0x3b3f45, { metal: 0.5 }));
-  hook.position.y = -h * 0.42;
-  hook.rotation.z = Math.PI * 0.8;
-  g.add(shank, hook);
-  g.traverse((o) => ((o as THREE.Mesh).castShadow = true));
-  return g;
+  return buildHookBlock(w, h, w > 0.7 ? 4 : w > 0.5 ? 2 : 1);
 }

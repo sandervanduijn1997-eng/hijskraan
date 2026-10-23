@@ -72,11 +72,12 @@ export class WorldModel {
       const x = pos.getX(i) + (x0 + x1) / 2;
       const z = pos.getZ(i) - 120;
       const inPlay = x > x0 - 5 && x < x1 + 5 && z > -38 && z < 28;
-      const far = Math.min(1, Math.max(0, (Math.abs(z + 20) - 40) / 200));
+      // heuvels pas voorbij de stadsrand, zodat gebouwen op vlak terrein staan
+      const far = Math.min(1, Math.max(0, (Math.abs(z + 20) - 440) / 200));
       pos.setY(i, inPlay ? -0.05 : -0.05 + (rng() * 0.6 + far * 18 * (0.5 + 0.5 * Math.sin(x * 0.02 + z * 0.015))) * (pal.indoor ? 0 : 1));
     }
     outer.computeVertexNormals();
-    const om = new THREE.Mesh(outer, pal.indoor ? surface('concrete', 0x9a9ea2) : surface(m.environment === 'roughTerrain' ? 'mud' : 'grass', 0xd8dccb));
+    const om = new THREE.Mesh(outer, pal.indoor ? surface('concrete', 0x9a9ea2) : surface(m.environment === 'roughTerrain' ? 'mud' : 'grass', 0xa8c48a));
     om.position.set((x0 + x1) / 2, 0, -120);
     om.receiveShadow = true;
     this.root.add(om);
@@ -85,28 +86,67 @@ export class WorldModel {
   private buildScenery(m: MissionDef, pal: EnvPalette, _sky: SkyPalette, rng: () => number): void {
     const cx = (m.bounds.minX + m.bounds.maxX) / 2;
     const night = m.timeOfDay === 'night' || m.timeOfDay === 'dusk';
-    // stadsrand / industrie op afstand (achter het speelveld, negatieve z)
-    for (let i = 0; i < 70; i++) {
-      const x = cx - 380 + rng() * 760;
-      const z = -70 - rng() * 220;
-      const wid = 10 + rng() * 26;
-      const dep = 10 + rng() * 20;
-      const hgt = pal.label === 'Windpark' ? 0 : 8 + rng() * (pal.label === 'Binnenstad' || pal.label === 'Hoogbouwproject' ? 90 : 45);
-      if (hgt > 0) {
-        // echte gevels: kantoor (glas), beton, baksteen of industrie, met spiegelende ramen
-        const kinds: FacadeKind[] = pal.label === 'Haven' || pal.label === 'Industrieterrein' ? ['industrial', 'concrete', 'industrial'] : hgt > 40 ? ['office', 'office', 'concrete'] : ['concrete', 'brick', 'office'];
-        const kind = kinds[Math.floor(rng() * kinds.length)];
-        const b = box(wid, hgt, dep, facade(kind, night, i), x, hgt / 2, z);
-        this.root.add(b);
-        // dakrand en installaties
-        this.root.add(box(wid + 0.4, 0.6, dep + 0.4, surface('concrete', 0xb8b4ac), x, hgt + 0.3, z));
-        if (rng() < 0.5) this.root.add(box(wid * 0.3, 2.2, dep * 0.3, steel(0x9aa0a6, 0.5), x + wid * 0.15, hgt + 1.7, z - dep * 0.1));
-        if (rng() < 0.2) {
-          const ch = cylinder(1.2, 30, shadeHex(pal.mid, 0.8));
-          ch.position.set(x, hgt + 15, z);
-          this.root.add(ch);
+    // stadsrand: stratenraster met bouwblokken (instanced per gevelsoort: weinig draw calls)
+    if (pal.label !== 'Windpark') {
+      const tall = pal.label === 'Binnenstad' || pal.label === 'Hoogbouwproject';
+      const industrial = pal.label === 'Haven' || pal.label === 'Industrieterrein';
+      const kindsLow: FacadeKind[] = industrial ? ['industrial', 'industrial', 'concrete'] : ['brick', 'concrete', 'brick', 'office'];
+      const kindsHigh: FacadeKind[] = industrial ? ['concrete', 'industrial'] : ['office', 'office', 'concrete'];
+      const groups = new Map<string, THREE.Matrix4[]>();
+      const roofs: THREE.Matrix4[] = [];
+      const units: THREE.Matrix4[] = [];
+      const add = (key: string, mtx: THREE.Matrix4) => {
+        const l = groups.get(key) ?? [];
+        l.push(mtx);
+        groups.set(key, l);
+      };
+      const m4 = (x: number, y: number, z: number, sx: number, sy: number, sz: number) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(sx, sy, sz));
+      const BLOCK = 64;
+      const STREET = 14;
+      const roads: THREE.Matrix4[] = [];
+      const walks: THREE.Matrix4[] = [];
+      for (let bz = -2; bz >= -6; bz--) {
+        for (let bx = -7; bx <= 7; bx++) {
+          const x0 = cx + bx * BLOCK;
+          const z0 = -46 + bz * BLOCK + BLOCK / 2;
+          if (rng() < 0.12) continue; // park of braakliggend terrein
+          // bebouwing langs de randen van het blok
+          const n = 2 + Math.floor(rng() * 3);
+          for (let k = 0; k < n; k++) {
+            const wid = 14 + rng() * 22;
+            const dep = 12 + rng() * 16;
+            const far = -bz;
+            const hgt = tall ? 12 + rng() * (30 + far * 18) : 9 + rng() * (14 + far * 4);
+            const x = x0 + (rng() - 0.5) * (BLOCK - STREET - wid);
+            const z = z0 + (rng() - 0.5) * (BLOCK - STREET - dep);
+            const kinds = hgt > 35 ? kindsHigh : kindsLow;
+            const kind = kinds[Math.floor(rng() * kinds.length)];
+            add(`${kind}|${Math.floor(rng() * 4)}`, m4(x, hgt / 2, z, wid, hgt, dep));
+            roofs.push(m4(x, hgt + 0.25, z, wid + 0.4, 0.5, dep + 0.4));
+            if (rng() < 0.6) units.push(m4(x + wid * 0.15, hgt + 1.4, z - dep * 0.1, wid * 0.25, 2.2, dep * 0.25));
+          }
+          // straten en stoepen rond het blok
+          roads.push(m4(x0, 0.02, z0 + BLOCK / 2, BLOCK, 0.04, STREET - 4), m4(x0 + BLOCK / 2, 0.021, z0, STREET - 4, 0.04, BLOCK));
+          walks.push(m4(x0, 0.06, z0 + BLOCK / 2 - STREET / 2 + 1, BLOCK, 0.12, 2), m4(x0, 0.06, z0 + BLOCK / 2 + STREET / 2 - 1, BLOCK, 0.12, 2));
         }
       }
+      const unit = new THREE.BoxGeometry(1, 1, 1);
+      const inst = (mats: THREE.Matrix4[], material: THREE.Material, shadow = true) => {
+        if (!mats.length) return;
+        const im = new THREE.InstancedMesh(unit, material, mats.length);
+        mats.forEach((mm, i) => im.setMatrixAt(i, mm));
+        im.castShadow = shadow;
+        im.receiveShadow = true;
+        this.root.add(im);
+      };
+      for (const [key, mats] of groups) {
+        const [kind, seed] = key.split('|');
+        inst(mats, facade(kind as FacadeKind, night, Number(seed)));
+      }
+      inst(roofs, surface('concrete', 0xa8a49c));
+      inst(units, steel(0x9aa0a6, 0.5));
+      inst(roads, surface('asphalt', 0xcfcfcf), false);
+      inst(walks, surface('concrete', 0xd8d6d0), false);
     }
     // gebouwen in aanbouw met bouwkranen
     for (let i = 0; i < 6; i++) {
@@ -209,8 +249,11 @@ export class WorldModel {
     // hekken langs de bouwplaats
     for (let x = m.bounds.minX - 10; x < m.bounds.maxX + 10; x += 3.5) {
       if (rng() < 0.3) continue;
-      this.root.add(box(3.4, 2, 0.05, mat(0xb8bec4, { transparent: 0.45 }), x, 1, -22, false));
-      this.root.add(box(0.6, 0.15, 0.6, 0x3a3f45, x - 1.7, 0.07, -22));
+      // bouwhek: gaaspaneel met buisframe op betonnen voet
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2), fenceMesh());
+      panel.position.set(x, 1.05, -22);
+      this.root.add(panel);
+      this.root.add(box(0.12, 0.25, 0.6, surface('concrete', 0xb5b1a9), x - 1.7, 0.12, -22));
     }
   }
 
@@ -459,4 +502,36 @@ export class ZoneMarker {
     (this.edges.material as THREE.LineBasicMaterial).color.setHex(color);
     if (this.ghost) this.ghost.visible = !done;
   }
+}
+
+let fenceMat: THREE.MeshStandardMaterial | null = null;
+/** Gaas van een bouwhek (alpha-getest raster) met verzinkt buisframe. */
+function fenceMesh(): THREE.MeshStandardMaterial {
+  if (fenceMat) return fenceMat;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 160;
+  const g = c.getContext('2d')!;
+  g.clearRect(0, 0, 256, 160);
+  g.strokeStyle = '#cfd3d6';
+  g.lineWidth = 1.4;
+  for (let x = 0; x <= 256; x += 6) {
+    g.beginPath();
+    g.moveTo(x, 0);
+    g.lineTo(x, 160);
+    g.stroke();
+  }
+  for (let y = 0; y <= 160; y += 14) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(256, y);
+    g.stroke();
+  }
+  g.lineWidth = 7;
+  g.strokeRect(3, 3, 250, 154);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  fenceMat = new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.35, transparent: false, metalness: 0.7, roughness: 0.4, side: THREE.DoubleSide });
+  return fenceMat;
 }

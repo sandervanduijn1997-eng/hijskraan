@@ -940,6 +940,12 @@ export class App {
         const m = MISSIONS.find((x) => x.id === id);
         if (m) this.startMission(m, { craneId: m.craneOptions[0], cw: m.crane.counterweightIndex ?? 99, boom: m.crane.boomOptionIndex ?? 0, jib: m.crane.jibIndex ?? 0, difficulty });
       },
+      /** Ontwikkelhulp: een kraan opgebouwd op een leeg terrein bekijken (zonder montage of opbouw). */
+      showroom: (craneId: CraneId, environment: EnvironmentId = 'trainingYard') => {
+        const base = practiceMission({ craneId, loadType: 'pallet500', environment, windBase: 0, gravity: 9.81 });
+        const m: MissionDef = { ...base, assembly: undefined, loads: base.loads.filter((l) => !l.id.startsWith('tw-')), zones: base.zones.filter((z) => !z.id.startsWith('tw-')), tasks: base.tasks.filter((t) => t.type === 'deliver' && !t.inOrder), crane: { ...base.crane, preassembled: true, outriggersDeployed: true } };
+        this.startPlay({ mode: 'practice', sim: { mission: m, craneId, difficulty: DIFFICULTIES.practice, freePlay: true }, livery: this.save.activeLivery });
+      },
       validate: () => MISSIONS.map((m) => ({ id: m.id, ok: validateMission(m).issues.every((i) => i.severity !== 'error') })),
       computePayout,
     };
