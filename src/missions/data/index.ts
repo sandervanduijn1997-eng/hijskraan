@@ -1,0 +1,24 @@
+import { CHAPTER_1, CHAPTER_2, CHAPTER_3, CHAPTER_4 } from './chapters1to4';
+import { CHAPTER_5, CHAPTER_6, CHAPTER_7, CHAPTER_8 } from './chapters5to8';
+import type { ChapterDef, MissionDef } from './types';
+
+export const CHAPTERS: ChapterDef[] = [
+  { number: 1, title: 'Kraanmachinist worden', subtitle: 'Basistraining', requiresLicense: null, stage: 1 },
+  { number: 2, title: 'De bouwplaats', subtitle: 'Kleine bouwprojecten', requiresLicense: 'basis', stage: 2 },
+  { number: 3, title: 'Torenkranen', subtitle: 'Stedelijke opdrachten', requiresLicense: 'basis', stage: 3 },
+  { number: 4, title: 'Industrie en precisie', subtitle: 'Industriële projecten', requiresLicense: 'toren', stage: 4 },
+  { number: 5, title: 'Ruw terrein', subtitle: 'Grote constructies', requiresLicense: 'industrie', stage: 5 },
+  { number: 6, title: 'Grote mobiele kranen', subtitle: 'Heavy-lift-projecten', requiresLicense: 'terrein', stage: 6 },
+  { number: 7, title: 'Haven en zware industrie', subtitle: 'Geavanceerde opdrachten', requiresLicense: 'zwaar', stage: 7 },
+  { number: 8, title: 'Heavy lift en eindproeven', subtitle: 'Specialistische eindproeven', requiresLicense: 'specialist', stage: 7 },
+];
+
+export const MISSIONS: MissionDef[] = [...CHAPTER_1, ...CHAPTER_2, ...CHAPTER_3, ...CHAPTER_4, ...CHAPTER_5, ...CHAPTER_6, ...CHAPTER_7, ...CHAPTER_8];
+
+export function getMission(id: string): MissionDef | undefined {
+  return MISSIONS.find((m) => m.id === id);
+}
+
+export function missionsInChapter(ch: number): MissionDef[] {
+  return MISSIONS.filter((m) => m.chapter === ch).sort((a, b) => a.number - b.number);
+}

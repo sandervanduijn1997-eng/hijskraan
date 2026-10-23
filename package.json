@@ -1,0 +1,27 @@
+{
+  "name": "crane-operator-heavy-lift",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CRANE OPERATOR: HEAVY LIFT — 2D low-poly hijskraansimulator",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "validate:missions": "vitest run tests/unit/missionValidation.test.ts"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "3.2.7"
+  }
+}
