@@ -1,0 +1,359 @@
+<title>Heavy Lift Roadmap</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: gevarenstreep-kop, versiestrook als tijdlijn, themamatrix (als een lastdiagram), daarna fasekaarten */
+:root {
+  --bg: #f3f2ee;
+  --surface: #ffffff;
+  --surface-2: #e9e7e1;
+  --ink: #1c1e21;
+  --muted: #5d6168;
+  --line: #d4d1c8;
+  --accent: #e3a400;
+  --accent-ink: #1c1e21;
+  --done: #2f8a55;
+  --now: #c98a00;
+  --next: #3f6f9e;
+  --later: #7a7f87;
+  --risk: #b8442f;
+  --display: 'Barlow Condensed', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+  --body: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a; --surface: #1e2125; --surface-2: #262a30; --ink: #eef0f2; --muted: #a2a8b0; --line: #343941;
+    --accent: #f2b705; --accent-ink: #15171a; --done: #4cc07c; --now: #f2b705; --next: #6ea6dc; --later: #8d939b; --risk: #f07a63;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a; --surface: #1e2125; --surface-2: #262a30; --ink: #eef0f2; --muted: #a2a8b0; --line: #343941;
+  --accent: #f2b705; --accent-ink: #15171a; --done: #4cc07c; --now: #f2b705; --next: #6ea6dc; --later: #8d939b; --risk: #f07a63;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.hazard { height: 8px; background: repeating-linear-gradient(-45deg, var(--accent) 0 14px, var(--ink) 14px 28px); }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 800; text-transform: uppercase; line-height: 0.95; }
+h1 span { color: var(--accent); }
+h2 { font-size: 1.7rem; font-weight: 700; text-transform: uppercase; }
+h3 { font-size: 1.35rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+header { display: grid; gap: 14px; }
+.lede { color: var(--muted); font-size: 1.05rem; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+.meta b { color: var(--ink); font-weight: 500; }
+
+/* versiestrook */
+.strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; overflow: hidden; }
+.step { padding: 14px 14px 16px; border-right: 1px solid var(--line); display: grid; gap: 4px; align-content: start; min-width: 0; position: relative; }
+.step:last-child { border-right: 0; }
+.step::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--c, var(--later)); }
+.step .v { font-family: var(--display); font-size: 1.6rem; font-weight: 800; line-height: 1; }
+.step .n { font-weight: 600; font-size: 0.92rem; }
+.step .s { font-size: 0.8rem; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c, var(--later)); }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--later)); }
+.done { --c: var(--done); } .now { --c: var(--now); } .next { --c: var(--next); } .later { --c: var(--later); }
+
+/* themamatrix */
+.matrix-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 0.86rem; }
+th, td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 10px 12px; vertical-align: top; text-align: left; }
+th:last-child, td:last-child { border-right: 0; }
+tr:last-child td { border-bottom: 0; }
+thead th { background: var(--surface-2); font-family: var(--mono); font-weight: 500; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+tbody th { font-family: var(--display); font-size: 1.05rem; font-weight: 700; width: 130px; background: var(--surface-2); }
+td ul { margin: 0; padding-left: 1.05em; display: grid; gap: 3px; }
+td.empty { color: var(--muted); }
+td.cur { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+
+/* fases */
+.phases { display: grid; gap: 18px; }
+.phase { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; display: grid; grid-template-columns: 200px minmax(0, 1fr); overflow: hidden; }
+.phase aside { background: var(--surface-2); padding: 18px; display: grid; gap: 8px; align-content: start; border-right: 4px solid var(--c, var(--later)); }
+.phase aside .v { font-family: var(--display); font-size: 2.6rem; font-weight: 800; line-height: 0.9; }
+.phase aside .size { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+.phase .content { padding: 18px 20px 20px; display: grid; gap: 14px; min-width: 0; }
+.cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; }
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.items li { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.prio { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; text-align: center; border: 1px solid var(--line); color: var(--muted); }
+.prio.must { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.prio.should { color: var(--ink); }
+.box h4 { margin: 0 0 6px; font-family: var(--mono); font-size: 0.72rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.box ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.risk { color: var(--risk); }
+.done-list li::marker { content: "✓  "; color: var(--done); }
+
+/* status & beperkingen */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px 20px; display: grid; gap: 10px; align-content: start; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 0.9rem; }
+.kv dt { font-family: var(--mono); color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.kv dd { margin: 0; }
+.lim { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 0.9rem; }
+.lim li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding-bottom: 8px; border-bottom: 1px dashed var(--line); }
+.lim li:last-child { border-bottom: 0; padding-bottom: 0; }
+.lim .to { font-family: var(--mono); font-size: 0.75rem; color: var(--next); white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; }
+footer { color: var(--muted); font-size: 0.82rem; display: grid; gap: 6px; }
+
+@media (max-width: 860px) {
+  .strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .step:nth-child(3n) { border-right: 0; }
+  .step:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+  .phase { grid-template-columns: 1fr; }
+  .phase aside { border-right: 0; border-top: 4px solid var(--c, var(--later)); grid-template-columns: auto 1fr; align-items: center; gap: 4px 14px; }
+  .cols, .two { grid-template-columns: 1fr; }
+}
+@media (max-width: 460px) {
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .step { border-right: 1px solid var(--line) !important; border-bottom: 1px solid var(--line); }
+  .step:nth-child(2n) { border-right: 0 !important; }
+}
+</style>
+
+<div class="hazard"></div>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Productroadmap · Crane Operator: Heavy Lift</div>
+    <h1>Van eerste hijs <span>naar heavy lift</span></h1>
+    <p class="lede">Waar de game nu staat en wat er per versie bijkomt. De volgorde volgt één regel: eerst de bestaande inhoud speelbaar en eerlijk maken, dan de simulatie verdiepen, daarna pas uitbreiden naar nieuwe modi en platformen.</p>
+    <div class="meta">
+      <span>Huidige versie <b>v0.1.0</b></span>
+      <span>Status <b>eerste release, speelbaar</b></span>
+      <span>Tests <b>115 unit/integratie · 8 e2e</b></span>
+      <span>Inhoud <b>10 kranen · 40 missies · 6 uitdagingen</b></span>
+    </div>
+  </header>
+
+  <section aria-labelledby="h-strip" style="display:grid;gap:14px">
+    <h2 id="h-strip">Versies in volgorde</h2>
+    <div class="strip">
+      <div class="step done"><span class="pill">Klaar</span><span class="v">0.1</span><span class="n">Eerste release</span><span class="s">Kern, 40 missies, carrière</span></div>
+      <div class="step now"><span class="pill">Volgende</span><span class="v">0.2</span><span class="n">Speeltest &amp; balans</span><span class="s">Elke missie eerlijk en uitspeelbaar</span></div>
+      <div class="step next"><span class="pill">Gepland</span><span class="v">0.3</span><span class="n">Besturing &amp; presentatie</span><span class="s">Gamepad, camera's, weer</span></div>
+      <div class="step next"><span class="pill">Gepland</span><span class="v">0.4</span><span class="n">Diepere simulatie</span><span class="s">Tandemhijs, reeving, bodemdruk</span></div>
+      <div class="step later"><span class="pill">Later</span><span class="v">0.5</span><span class="n">Bedrijf &amp; carrière</span><span class="s">Offertes, planning, personeel</span></div>
+      <div class="step later"><span class="pill">Later</span><span class="v">0.6</span><span class="n">Platformen &amp; community</span><span class="s">Desktop, editor, talen</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-matrix" style="display:grid;gap:14px">
+    <h2 id="h-matrix">Thema's per versie</h2>
+    <p class="lede">Lees het als een lastdiagram: rijen zijn de onderdelen van de game, kolommen de versies. Een lege cel betekent bewust geen werk aan dat onderdeel in die versie.</p>
+    <div class="matrix-wrap">
+      <table>
+        <thead><tr><th>Onderdeel</th><th>v0.2 Speeltest</th><th>v0.3 Besturing</th><th>v0.4 Simulatie</th><th>v0.5 Bedrijf</th><th>v0.6 Platform</th></tr></thead>
+        <tbody>
+          <tr><th>Fysica</th>
+            <td class="cur"><ul><li>Afstellen demping en wind per hoofdstuk</li><li>WebGL-profilering op echte GPU</li></ul></td>
+            <td class="empty">—</td>
+            <td><ul><li>Multi-fall reeving, lier­trommel</li><li>Tandemhijs met lastverdeling</li><li>Lastgieren met taglines</li><li>Kabel over randen</li></ul></td>
+            <td class="empty">—</td>
+            <td class="empty">—</td></tr>
+          <tr><th>Kranen</th>
+            <td class="cur"><ul><li>Autopilot-test per kraantype</li></ul></td>
+            <td><ul><li>Analoge, proportionele hydrauliek</li></ul></td>
+            <td><ul><li>Luffing-jib-torenkraan</li><li>Super-lift voor heavy-lift</li><li>Mast klimmen, weathervaning</li></ul></td>
+            <td><ul><li>Tweedehandsmarkt, restwaarde</li></ul></td>
+            <td class="empty">—</td></tr>
+          <tr><th>Missies</th>
+            <td class="cur"><ul><li>Alle 40 door mensen gespeeld</li><li>Tijden, toleranties bijstellen</li><li>Contextuele hints per fase</li></ul></td>
+            <td><ul><li>Weer en dag/nacht in missies</li></ul></td>
+            <td><ul><li>Tandem- en kantelmissies</li></ul></td>
+            <td><ul><li>Procedurele opdrachten</li><li>Certificeringsexamens</li></ul></td>
+            <td><ul><li>Missie-editor met live validatie</li></ul></td></tr>
+          <tr><th>Besturing &amp; UI</th>
+            <td class="cur"><ul><li>Toegankelijkheid: kleurenblind, tekstschaal</li><li>Menu's volledig met toetsenbord</li></ul></td>
+            <td><ul><li>Gamepad en joystick</li><li>Cabine- en lastcamera</li></ul></td>
+            <td class="empty">—</td>
+            <td><ul><li>Bedrijfsdashboard</li></ul></td>
+            <td><ul><li>Engels en Duits</li></ul></td></tr>
+          <tr><th>Audio</th>
+            <td class="empty">—</td>
+            <td><ul><li>Diesel per kraantype, Doppler</li><li>Signaalgever via portofoon</li></ul></td>
+            <td class="empty">—</td>
+            <td class="empty">—</td>
+            <td class="empty">—</td></tr>
+          <tr><th>Platform</th>
+            <td class="cur"><ul><li>Replay/ghost van beste poging</li></ul></td>
+            <td class="empty">—</td>
+            <td class="empty">—</td>
+            <td><ul><li>Achievements, statistieken</li></ul></td>
+            <td><ul><li>Desktopbuild (Tauri)</li><li>Cloud saves, ranglijsten</li></ul></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-phases" class="phases">
+    <h2 id="h-phases">Per versie</h2>
+
+    <article class="phase done">
+      <aside><span class="pill">Klaar</span><span class="v">0.1</span><span class="size">Eerste release</span></aside>
+      <div class="content">
+        <h3>Speelbare kern</h3>
+        <div class="cols">
+          <div class="box"><h4>Opgeleverd</h4>
+            <ul class="done-list">
+              <li>10 kraanklassen met eigen bediening, opbouw- en stempelprocedures</li>
+              <li>Eigen XPBD-fysica: kabel, slinger, kantelende lasten, botsingen</li>
+              <li>Stabiliteitsmodel met lastdiagram en lastmomentbegrenzer</li>
+              <li>40 missies, carrière, licenties, economie, upgrades, opslag</li>
+              <li>HUD, planning met lastdiagram, vrije oefening, 6 uitdagingen</li>
+            </ul></div>
+          <div class="box"><h4>Bewijs</h4>
+            <ul>
+              <li>Alle 40 missies automatisch gevalideerd op bereik en capaciteit</li>
+              <li>Missie 1 met het toetsenbord uitgespeeld in de browser</li>
+              <li>Productiebuild en alle tests slagen</li>
+            </ul></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="phase now">
+      <aside><span class="pill">Volgende</span><span class="v">0.2</span><span class="size">Omvang: M</span></aside>
+      <div class="content">
+        <h3>Speeltest &amp; balans</h3>
+        <p>Doel: elke missie is door een mens uitgespeeld en voelt eerlijk. Dit gaat vóór nieuwe functies, omdat de latere hoofdstukken nu alleen automatisch zijn gecontroleerd.</p>
+        <div class="cols">
+          <ul class="items">
+            <li><span class="prio must">Must</span><span>Speeltestronde over alle 40 missies, tijden en fouten loggen</span></li>
+            <li><span class="prio must">Must</span><span>Tijdslimieten, toleranties en wind bijstellen op gemeten speeltijden</span></li>
+            <li><span class="prio must">Must</span><span>Autopilot-integratietest voor toren, knikarm, rups en pick-and-carry</span></li>
+            <li><span class="prio should">Should</span><span>Contextuele hints per fase ("laat eerst uitslingeren")</span></li>
+            <li><span class="prio should">Should</span><span>Replay/ghost van de beste poging (deterministisch: invoer opnemen volstaat)</span></li>
+            <li><span class="prio should">Should</span><span>Toegankelijkheid: kleurenblindvriendelijke balken, tekstschaal</span></li>
+            <li><span class="prio">Could</span><span>WebGL-profilering op een echte GPU, culling bij grote scènes</span></li>
+          </ul>
+          <div class="box"><h4>Klaar als</h4>
+            <ul>
+              <li>Elke missie minimaal 3× door verschillende spelers voltooid</li>
+              <li>Geen missie waarbij &gt; 50 % van de pogingen op tijd strandt</li>
+              <li>Elk kraantype heeft een geslaagde headless hijs</li>
+            </ul>
+            <h4 style="margin-top:12px">Risico</h4>
+            <ul class="risk"><li>Balanswijzigingen kunnen eerder gevalideerde missies breken; de validator draait bij elke wijziging mee</li></ul>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="phase next">
+      <aside><span class="pill">Gepland</span><span class="v">0.3</span><span class="size">Omvang: M</span></aside>
+      <div class="content">
+        <h3>Besturing &amp; presentatie</h3>
+        <div class="cols">
+          <ul class="items">
+            <li><span class="prio must">Must</span><span>Gamepad en joystick via de bestaande assenbron</span></li>
+            <li><span class="prio must">Must</span><span>Analoge, proportionele hydrauliek met dode zone en gevoeligheid</span></li>
+            <li><span class="prio should">Should</span><span>Cabineweergave en tweede camera boven de last</span></li>
+            <li><span class="prio should">Should</span><span>Dag-nachtcyclus, onweer met verplichte stop boven windlimiet</span></li>
+            <li><span class="prio">Could</span><span>Signaalgever via portofoon ("zakken… stop"), diesel per kraantype</span></li>
+          </ul>
+          <div class="box"><h4>Klaar als</h4>
+            <ul><li>Alle 40 missies volledig met een standaard Xbox/PlayStation-controller te spelen</li><li>Toetsen en controllerknoppen allebei aanpasbaar in Instellingen</li></ul>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="phase next">
+      <aside><span class="pill">Gepland</span><span class="v">0.4</span><span class="size">Omvang: L</span></aside>
+      <div class="content">
+        <h3>Diepere simulatie</h3>
+        <div class="cols">
+          <ul class="items">
+            <li><span class="prio must">Must</span><span>Tandemhijs met twee kranen: lastverdeling en belasting per kraan</span></li>
+            <li><span class="prio must">Must</span><span>Multi-fall reeving en liertrommel; hulphaak om lasten te kantelen</span></li>
+            <li><span class="prio should">Should</span><span>Lastgieren met taglines als bedienbaar element</span></li>
+            <li><span class="prio should">Should</span><span>Wegzakkende stempels: bodemdruk per stempel, plaatsbare kraanmatten</span></li>
+            <li><span class="prio should">Should</span><span>Torenkraan: weathervaning, mast klimmen, verankering</span></li>
+            <li><span class="prio">Could</span><span>Luffing-jib-torenkraan en super-lift voor de heavy-lift rupskraan</span></li>
+            <li><span class="prio">Could</span><span>Kabel die over randen loopt en kan haken</span></li>
+          </ul>
+          <div class="box"><h4>Klaar als</h4>
+            <ul><li>Tandemhijs speelbaar in minimaal 3 nieuwe missies</li><li>Fysicatests uitgebreid voor elk nieuw model (reeving, bodemdruk)</li></ul>
+            <h4 style="margin-top:12px">Risico</h4>
+            <ul class="risk"><li>Twee kabels aan één last maken de XPBD-oplossing stijver; extra substappen kosten rekentijd</li></ul>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="phase later">
+      <aside><span class="pill">Later</span><span class="v">0.5</span><span class="size">Omvang: L</span></aside>
+      <div class="content">
+        <h3>Bedrijf &amp; carrière</h3>
+        <div class="cols">
+          <ul class="items">
+            <li><span class="prio must">Must</span><span>Offertes uitbrengen, weekplanning met meerdere kranen</span></li>
+            <li><span class="prio must">Must</span><span>Procedurele opdrachten op basis van missiebouwstenen en de validator</span></li>
+            <li><span class="prio should">Should</span><span>Personeel (riggers, signaalgevers), verzekering, boetes bij schade</span></li>
+            <li><span class="prio should">Should</span><span>Tweedehandsmarkt met conditie en restwaarde</span></li>
+            <li><span class="prio">Could</span><span>Certificeringsexamens met inspecteur, achievements</span></li>
+          </ul>
+          <div class="box"><h4>Klaar als</h4>
+            <ul><li>Na missie 40 is er eindeloos te spelen zonder herhaling van dezelfde opdracht</li><li>Economie blijft speelbaar zonder grinden (gesimuleerd over 100 opdrachten)</li></ul>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="phase later">
+      <aside><span class="pill">Later</span><span class="v">0.6</span><span class="size">Omvang: M</span></aside>
+      <div class="content">
+        <h3>Platformen &amp; community</h3>
+        <div class="cols">
+          <ul class="items">
+            <li><span class="prio must">Must</span><span>Desktopbuild via Tauri, saves in de gebruikersmap</span></li>
+            <li><span class="prio must">Must</span><span>Missie-editor met live validatie, delen als JSON</span></li>
+            <li><span class="prio should">Should</span><span>Engels en Duits</span></li>
+            <li><span class="prio">Could</span><span>Ranglijsten voor uitdagingen (alleen veilige, gevalideerde runs)</span></li>
+            <li><span class="prio">Could</span><span>Steam-integratie als er een publicatieroute komt</span></li>
+          </ul>
+          <div class="box"><h4>Voorwaarde</h4>
+            <ul><li>Missiedata naar JSON-schema met runtime-validatie bij het laden</li></ul>
+          </div>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section class="two" aria-label="Lange termijn en beperkingen">
+    <div class="panel">
+      <h2>Lange termijn</h2>
+      <dl class="kv">
+        <dt>3D</dt><dd>Volledige 3D-weergave bovenop dezelfde simulatiekern, die al in x, y en z rekent</dd>
+        <dt>VR</dt><dd>Cabine in VR</dd>
+        <dt>Samen</dt><dd>Machinist + signaalgever, of twee machinisten bij een tandemhijs</dd>
+        <dt>Opleiding</dt><dd>Educatieve modus met uitleg van lastdiagrammen en exporteerbare hijsplannen</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h2>Bekende beperkingen</h2>
+      <ul class="lim">
+        <li><span>Missies 2–40 nog niet door een mens uitgespeeld</span><span class="to">→ v0.2</span></li>
+        <li><span>Geen controller-ondersteuning (wel voorbereid)</span><span class="to">→ v0.3</span></li>
+        <li><span>Lasten draaien niet om de verticale as</span><span class="to">→ v0.4</span></li>
+        <li><span>Kabel wikkelt niet om obstakels</span><span class="to">→ v0.4</span></li>
+        <li><span>Torenkranen zonder weathervaning</span><span class="to">→ v0.4</span></li>
+        <li><span>Geen desktopbuild, alleen Nederlands</span><span class="to">→ v0.6</span></li>
+        <li><span>Referentiecijfers niet geverifieerd tegen officiële lastdiagrammen</span><span class="to">blijft spelwaarde</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <div class="legend"><span class="pill done">Klaar</span><span class="pill now">Volgende</span><span class="pill next">Gepland</span><span class="pill later">Later</span></div>
+    <p>Omvang is relatief (S/M/L) en geen datumbelofte. Prioriteit: Must = nodig om de versie af te ronden, Should = verwacht, Could = als er ruimte is.</p>
+  </footer>
+</div>
