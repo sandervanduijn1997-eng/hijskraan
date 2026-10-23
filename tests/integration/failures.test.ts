@@ -38,7 +38,11 @@ describe('mislukkingen en veiligheidsgrenzen', () => {
     attachAt(sim, 'l1');
     run(sim, 20, () => { const i = emptyInput(); i.hoist = 1; return i; });
     const load = sim.loads[0];
-    expect(load.cb.body.pos.y - load.cb.body.halfH).toBeLessThan(0.05);
+    // de last blijft op de grond steunen (hooguit licht kantelend op één rand) en de kabelkracht blijft binnen de grens
+    expect(load.cb.supports.size > 0 || load.cb.body.sleeping).toBe(true);
+    expect(sim.tensionF / 9.81 / 1000).toBeLessThan(sim.capacityT * 1.4);
+    expect(sim.tensionF / 9.81 / 1000).toBeLessThan(load.type.massKg / 1000 * 0.85);
+    expect(load.cb.body.pos.y - load.cb.body.halfH).toBeLessThan(0.3);
     expect(sim.lmiLatched).toBe(true);
     expect(sim.lastControl.blocked.hoist).toBe('lmi');
     expect(sim.warnings.has('overload')).toBe(true);

@@ -183,9 +183,9 @@ export const CHAPTER_2: MissionDef[] = [
     loads: [{ id: 'm1', type: 'machineSmall', x: 6.5, y: 0 }],
     zones: [zone('z1', 'Opstelplaats', 21.6, 0, 0.25)],
     obstacles: [
-      ceiling(-30, 50, 10.5),
-      box('r1', 'machine', 18, 0, 2, 5.5, { label: 'installatierek', style: 'rack' }),
-      box('r2', 'machine', 23.2, 0, 2, 5.5, { label: 'installatierek', style: 'rack' }),
+      ceiling(-30, 50, 12),
+      box('r1', 'machine', 18, 0, 2, 3.0, { label: 'installatierek', style: 'rack' }),
+      box('r2', 'machine', 23.2, 0, 2, 3.0, { label: 'installatierek', style: 'rack' }),
     ],
     groundFallback: 'floor',
     tasks: [{ type: 'deliver', loadId: 'm1', zoneId: 'z1' }],
@@ -358,10 +358,10 @@ export const CHAPTER_4: MissionDef[] = [
     zones: [zone('z1', 'Onderhoud 1', -8, 0, 0.5), zone('z2', 'Onderhoud 2', -10.5, 0, 0.5), zone('z3', 'Onderhoud 3', -13, 0, 0.5)],
     obstacles: [
       ceiling(-30, 50, 9),
-      box('i1', 'machine', 10.5, 0, 0.6, 3.5, { label: 'installatie', style: 'rack' }),
-      box('i2', 'machine', 13.5, 0, 0.6, 3.5, { label: 'installatie', style: 'rack' }),
-      box('i3', 'machine', 16.5, 0, 0.6, 3.5, { label: 'installatie', style: 'rack' }),
-      box('i4', 'machine', 19.5, 0, 0.6, 3.5, { label: 'installatie', style: 'rack' }),
+      box('i1', 'machine', 10.5, 0, 0.6, 3.0, { label: 'installatie', style: 'rack' }),
+      box('i2', 'machine', 13.5, 0, 0.6, 3.0, { label: 'installatie', style: 'rack' }),
+      box('i3', 'machine', 16.5, 0, 0.6, 3.0, { label: 'installatie', style: 'rack' }),
+      box('i4', 'machine', 19.5, 0, 0.6, 3.0, { label: 'installatie', style: 'rack' }),
     ],
     groundFallback: 'floor',
     tasks: [

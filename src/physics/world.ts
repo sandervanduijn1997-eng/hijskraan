@@ -17,10 +17,15 @@ export interface PhysicsParams {
   angularDamping: number;
   /** Elasticiteit van kabel + giek (m/N): de last wordt geleidelijk overgenomen bij het heffen. */
   ropeCompliance: number;
-  /** Demping van de kabelrek (1/s): voorkomt dat de elastische kabel als een elastiek terugveert. */
+  /** Maximale demping van de kabelrek (1/s); werkelijk kritisch gedempt (2ω) zodat de kabel niet terugveert of de last vasthoudt. */
   ropeDamping: number;
   friction: FrictionParams;
 }
+
+/** Hoe lang (s) een contact "onthouden" wordt voor inslagdetectie. */
+const CONTACT_MEMORY = 0.4;
+/** Extra demping (1/s) voor een aangeslagen last die nog contact maakt met de ondergrond. */
+const CONTACT_DAMPING = 12;
 
 export const defaultPhysicsParams = (): PhysicsParams => ({
   gravity: GRAVITY,
@@ -28,7 +33,7 @@ export const defaultPhysicsParams = (): PhysicsParams => ({
   linearDamping: 0.01,
   angularDamping: 0.25,
   ropeCompliance: 0,
-  ropeDamping: 40,
+  ropeDamping: 60,
   friction: { staticMu: 0.65, dynamicMu: 0.45 },
 });
 
@@ -57,7 +62,7 @@ export class PhysicsWorld {
   }
 
   addBody(id: string, body: RigidBody, extraPoints: { x: number; y: number }[] = []): ContactBody {
-    const cb: ContactBody = { id, body, touching: new Set(), supports: new Set(), lastTouching: new Set(), extraPoints };
+    const cb: ContactBody = { id, body, touching: new Set(), supports: new Set(), lastTouching: new Set(), recent: new Map(), extraPoints };
     this.bodies.push(cb);
     return cb;
   }
@@ -152,6 +157,12 @@ export class PhysicsWorld {
         b.vel.z *= lin;
         const angD = cb.touching.size > 0 ? p.angularDamping * 8 : p.angularDamping;
         b.angVel *= Math.max(0, 1 - angD * h);
+        if (cb.touching.size > 0 && cb === rb) {
+          // een last die half aan de kabel en half op de grond rust, zou anders blijven wippen en wiegen
+          const cd = Math.max(0, 1 - CONTACT_DAMPING * h);
+          b.vel.y *= cd;
+          b.angVel *= cd;
+        }
         if (cb === rb) {
           // demping van de kabelrek langs de kabelrichting (alleen bij strakke kabel)
           if (p.ropeCompliance > 0) {
@@ -165,8 +176,13 @@ export class PhysicsWorld {
               const nx = dx / d;
               const ny = dy / d;
               const nz = dz / d;
-              const vr = (b.vel.x - tipVx) * nx + (b.vel.y - (tipEnd.y - tipStart.y) / dt) * ny + (b.vel.z - tipVz) * nz;
-              const k = Math.min(1, p.ropeDamping * h);
+              // rek-snelheid = radiale snelheid min de lengteverandering van de lier; alleen die dempen,
+              // anders werkt de demping als een rem op het hijsen zelf (en meet de begrenzer te veel kracht)
+              const dLdt = (rope.length - lengthStart) / dt;
+              const vr = (b.vel.x - tipVx) * nx + (b.vel.y - (tipEnd.y - tipStart.y) / dt) * ny + (b.vel.z - tipVz) * nz - dLdt;
+              // kritische demping van de kabelveer: c = 2·√(k/m), begrensd door ropeDamping
+              const omega = Math.sqrt(1 / (p.ropeCompliance * b.mass));
+              const k = Math.min(1, Math.min(p.ropeDamping, 2 * omega) * h);
               b.vel.x -= nx * vr * k;
               b.vel.y -= ny * vr * k;
               b.vel.z -= nz * vr * k;
@@ -195,6 +211,13 @@ export class PhysicsWorld {
       rope.slack = true;
     }
 
+    for (const cb of this.bodies) {
+      for (const [id, t] of cb.recent) {
+        if (t - dt <= 0) cb.recent.delete(id);
+        else cb.recent.set(id, t - dt);
+      }
+      for (const id of cb.touching) cb.recent.set(id, CONTACT_MEMORY);
+    }
     this.updateSleep(dt);
   }
 

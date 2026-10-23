@@ -13,6 +13,11 @@ export interface ContactBody {
   /** Ids van objecten waar het lichaam op steunt (normaal grotendeels omhoog). */
   supports: Set<string>;
   lastTouching: Set<string>;
+  /**
+   * Contacten van de afgelopen ~0,4 s (id → resterende tijd). Een inslag telt alleen bij een écht nieuw
+   * contact; zo levert een rustende last die licht wiebelt op smalle steunpunten geen valse schade op.
+   */
+  recent: Map<string, number>;
   /** Extra contactpunten in het lichaamsframe (bijv. de haak). */
   extraPoints: { x: number; y: number }[];
 }
@@ -48,7 +53,7 @@ function recordContact(
   ny: number,
   impacts: ImpactEvent[],
 ): void {
-  if (!cb.lastTouching.has(otherId) && !cb.touching.has(otherId)) {
+  if (!cb.lastTouching.has(otherId) && !cb.touching.has(otherId) && !cb.recent.has(otherId)) {
     const v = pointVelocity(cb.body, px, py);
     const vn = v.x * nx + v.y * ny;
     if (vn < -0.02) impacts.push({ bodyId: cb.id, otherId, speed: -vn, x: px, y: py, landing: ny > SUPPORT_NY });
@@ -122,7 +127,7 @@ function solveStatic(cb: ContactBody, c: Collider, cq: Quad, fr: FrictionParams,
       if (prevZmax <= c.minZ) b.pos.z = c.minZ - b.depth / 2 - 1e-4;
       else b.pos.z = c.maxZ + b.depth / 2 + 1e-4;
       const vz = Math.abs(b.vel.z);
-      if (!cb.lastTouching.has(c.id) && vz > 0.02)
+      if (!cb.lastTouching.has(c.id) && !cb.recent.has(c.id) && vz > 0.02)
         impacts.push({ bodyId: cb.id, otherId: c.id, speed: vz, x: b.pos.x, y: b.pos.y, landing: false });
       cb.touching.add(c.id);
       b.vel.z = 0;

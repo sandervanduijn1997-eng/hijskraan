@@ -24,6 +24,8 @@ export interface CraneFeasibility {
   reasons: string[];
   /** Hoogste benodigde belasting (%) over alle hijsen, voor de planning. */
   peakPercent: number;
+  /** Beste gevonden configuratie (opstelplaats, contragewicht, giek, hulpgiek). */
+  config?: { baseX: number; cw: number; boom: number; jib: number };
 }
 
 export interface MissionValidation {
@@ -38,6 +40,10 @@ interface LiftPoint {
   massT: number;
   label: string;
   extraCwT: number;
+  /** Straal waarop gecontroleerd wordt (standaard |x − draaias|). */
+  atRadius?: number;
+  /** Voor doorgangscontrole: hijs- en doelpositie en de hoogte van last + stroppen + haak + minimale kabel. */
+  transit?: { from: number; to: number; stack: number };
 }
 
 const hookDims = (spec: ResolvedCrane) => {
@@ -116,6 +122,7 @@ export function validateMission(m: MissionDef): MissionValidation {
   if (issues.some((i) => i.severity === 'error')) return { missionId: m.id, issues, feasibility: [] };
 
   const colliders = buildColliders(m.obstacles);
+  const ceilingY = Math.min(Infinity, ...m.obstacles.filter((o) => o.kind === 'ceiling').map((o) => o.y));
   const surfaceAt = (x: number, y: number, halfW: number): boolean => {
     if (Math.abs(y) < 0.02) return true;
     return colliders.some((c) => c.landable && Math.abs(c.maxY - y) < 0.05 && x + halfW > c.minX && x - halfW < c.maxX);
@@ -176,7 +183,7 @@ export function validateMission(m: MissionDef): MissionValidation {
       const above = lt.height + lt.slingHeight + hd.h + spec.gb.ropeMin + 0.3;
       const massT = (lt.massKg + spec.gb.hookMassKg) / 1000;
       lifts.push({ x: ls.x + (lt.comOffsetX ?? 0) * 0, heightNeeded: ls.y + above, massT, label: `${ls.id} oppakken`, extraCwT: extraCw });
-      lifts.push({ x: zn.x, heightNeeded: zn.y + above, massT, label: `${ls.id} neerzetten`, extraCwT: extraCw });
+      lifts.push({ x: zn.x, heightNeeded: zn.y + above, massT, label: `${ls.id} neerzetten`, extraCwT: extraCw, transit: { from: ls.x, to: zn.x, stack: above } });
       if (t.effect?.type === 'addCounterweight') extraCw += t.effect.massT;
     }
     const plan = m.planning ?? {};
@@ -207,13 +214,27 @@ export function validateMission(m: MissionDef): MissionValidation {
       bases = [];
       for (let x = m.bounds.minX; x <= m.bounds.maxX; x += 0.5) if (carrierFree(x)) bases.push(x);
     }
-    let best: { ok: boolean; peak: number; why: string[] } = { ok: false, peak: Infinity, why: ['geen opstelplaats gevonden'] };
+    let best: { ok: boolean; peak: number; why: string[]; config?: CraneFeasibility['config'] } = { ok: false, peak: Infinity, why: ['geen opstelplaats gevonden'] };
     let bestFail = Infinity;
     if (perLiftBase) {
       // pick-and-carry: elke hijs mag vanaf een andere positie (rijden met last)
       const why: string[] = [];
       let peak = 0;
+      // doorgang: rijdend met last moet de last over obstakels tussen hijs- en doelpositie
+      const carryChecks: LiftPoint[] = [...lifts];
       for (const lp of lifts) {
+        if (!lp.transit) continue;
+        const a0 = Math.min(lp.transit.from, lp.transit.to);
+        const a1 = Math.max(lp.transit.from, lp.transit.to);
+        for (const c of colliders) {
+          if (c.kind === 'ceiling' || c.minZ > 1 || c.maxZ < -1) continue;
+          const x0 = Math.max(a0 + 0.5, c.minX);
+          const x1 = Math.min(a1 - 0.5, c.maxX);
+          if (x0 > x1) continue;
+          carryChecks.push({ x: (x0 + x1) / 2, heightNeeded: c.maxY + lp.transit.stack, massT: lp.massT, label: `${lp.label.replace(' neerzetten', '')} over ${c.label ?? c.id}`, extraCwT: 0 });
+        }
+      }
+      for (const lp of carryChecks) {
         let bestPct = Infinity;
         let reach = false;
         for (const bx of bases) {
@@ -224,7 +245,7 @@ export function validateMission(m: MissionDef): MissionValidation {
           for (const st of statesAtRadius(spec, base, u, lp.x >= slewX ? 0 : Math.PI, { boomIdx, jibIdx })) {
             const g = computeGeometry(spec, st);
             if (g.tipHeight < lp.heightNeeded) continue;
-            if (m.obstacles.some((o) => o.kind === 'ceiling' && g.tipHeight > o.y - 0.5)) continue;
+            if (g.tipHeight > ceilingY - 0.6) continue;
             reach = true;
             bestPct = Math.min(bestPct, (lp.massT / Math.max(1e-6, allowedCapacityT(spec, st))) * 100);
           }
@@ -233,25 +254,51 @@ export function validateMission(m: MissionDef): MissionValidation {
         else if (bestPct > 100) why.push(`${lp.label}: te zwaar (${bestPct.toFixed(0)} %)`);
         else peak = Math.max(peak, bestPct);
       }
-      best = { ok: why.length === 0, peak, why };
+      best = { ok: why.length === 0, peak, why, config: { baseX: m.crane.x, cw: cwIdx[cwIdx.length - 1], boom: boomIdx[0], jib: jibIdx[0] } };
       bases = [];
     }
+    const combos: { ci: number; bi: number; ji: number }[] = [];
+    for (const ci of cwIdx) for (const bi of boomIdx) for (const ji of jibIdx) combos.push({ ci, bi, ji });
     for (const bx of bases) {
-      // per configuratie (cw), alle hijsen moeten haalbaar zijn
-      for (const ci of cwIdx) {
-        const base = createCraneState(spec, { ...m.crane, x: bx, counterweightIndex: ci, outriggersDeployed: true, preassembled: true });
+      // per configuratie (contragewicht, giek, hulpgiek): alle hijsen moeten haalbaar zijn
+      for (const { ci, bi, ji } of combos) {
+        const base = createCraneState(spec, { ...m.crane, x: bx, counterweightIndex: ci, boomOptionIndex: bi, jibIndex: ji, outriggersDeployed: true, preassembled: true });
         const why: string[] = [];
         let peak = 0;
         const slewX = bx + spec.gb.slewOffsetX;
+        // doorgang: de last moet over obstakels tussen hijs- en doelpositie (of tussen elk eindpunt en de draaias)
+        const checks: LiftPoint[] = [...lifts];
         for (const lp of lifts) {
-          const u = Math.abs(lp.x - slewX);
+          if (!lp.transit) continue;
+          const { from, to, stack } = lp.transit;
+          // zelfde kant: de straal verandert onderweg (in het vlak). Tegenovergestelde kant: er wordt op vaste
+          // straal gezwenkt, dus obstakels tussen draaias en eindpunt worden op de straal van dat eindpunt gepasseerd.
+          const same = Math.sign(from - slewX) === Math.sign(to - slewX);
+          const spans: [number, number, number | undefined][] = same
+            ? [[Math.min(from, to), Math.max(from, to), undefined]]
+            : [
+                [Math.min(from, slewX), Math.max(from, slewX), Math.abs(from - slewX)],
+                [Math.min(to, slewX), Math.max(to, slewX), Math.abs(to - slewX)],
+              ];
+          for (const c of colliders) {
+            if (c.kind === 'ceiling' || c.minZ > 1 || c.maxZ < -1) continue;
+            for (const [a, b, r] of spans) {
+              const x0 = Math.max(a + 0.5, c.minX);
+              const x1 = Math.min(b - 0.5, c.maxX);
+              if (x0 > x1) continue;
+              for (const x of [x0, x1]) checks.push({ x, atRadius: r, heightNeeded: c.maxY + stack, massT: lp.massT, label: `${lp.label.replace(' neerzetten', '')} over ${c.label ?? c.id}`, extraCwT: lp.extraCwT });
+            }
+          }
+        }
+        for (const lp of checks) {
+          const u = lp.atRadius ?? Math.abs(lp.x - slewX);
           const slew = lp.x >= slewX ? 0 : Math.PI;
-          const states = statesAtRadius(spec, { ...base, extraCounterweightT: lp.extraCwT }, u, slew, { boomIdx, jibIdx });
+          const states = statesAtRadius(spec, { ...base, extraCounterweightT: lp.extraCwT }, u, slew, { boomIdx: [bi], jibIdx: [ji] });
           let bestPct = Infinity;
           let reachOk = false;
           for (const st of states) {
             const g = computeGeometry(spec, st);
-            if (g.tipHeight < lp.heightNeeded) continue;
+            if (g.tipHeight < lp.heightNeeded || g.tipHeight > ceilingY - 0.6) continue;
             reachOk = true;
             const cap = allowedCapacityT(spec, st);
             const pct = (lp.massT / Math.max(1e-6, cap)) * 100;
@@ -262,7 +309,10 @@ export function validateMission(m: MissionDef): MissionValidation {
           else peak = Math.max(peak, bestPct);
         }
         if (why.length === 0) {
-          if (!best.ok || peak < best.peak) best = { ok: true, peak, why: [] };
+          // voorkeur: binnen het hijsplan, en dan de laagste belasting
+          const lim = m.requirements.maxLoadPercent ?? 100;
+          const better = !best.ok || (peak <= lim && best.peak > lim) || ((peak <= lim) === (best.peak <= lim) && peak < best.peak);
+          if (better) best = { ok: true, peak, why: [], config: { baseX: bx, cw: ci, boom: bi, jib: ji } };
         } else if (!best.ok && why.length < bestFail) {
           bestFail = why.length;
           best = { ok: false, peak: Infinity, why };
@@ -273,7 +323,7 @@ export function validateMission(m: MissionDef): MissionValidation {
     if (m.requirements.maxLoadPercent && best.ok && best.peak > m.requirements.maxLoadPercent) {
       reasons.push(`hijsplan vereist ≤ ${m.requirements.maxLoadPercent} %, beste configuratie ${best.peak.toFixed(0)} %`);
     }
-    feasibility.push({ craneId: cid, feasible: reasons.length === 0, reasons, peakPercent: best.ok ? best.peak : Infinity });
+    feasibility.push({ craneId: cid, feasible: reasons.length === 0, reasons, peakPercent: best.ok ? best.peak : Infinity, config: best.config });
   }
   if (!feasibility[0]?.feasible) err(`Standaardkraan ${m.craneOptions[0]} kan de missie niet uitvoeren: ${feasibility[0]?.reasons.join('; ')}`);
   for (const f of feasibility.slice(1)) if (!f.feasible) warn(`Alternatieve kraan ${f.craneId} is ongeschikt: ${f.reasons.join('; ')}`);

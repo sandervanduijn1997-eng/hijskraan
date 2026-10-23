@@ -86,7 +86,7 @@ function axisApplies(spec: ResolvedCrane, axis: Axis): boolean {
   }
 }
 
-function axisMaxSpeed(spec: ResolvedCrane, axis: Axis): number {
+export function axisMaxSpeed(spec: ResolvedCrane, axis: Axis): number {
   const gb = spec.gb;
   switch (axis) {
     case 'luff':
@@ -367,7 +367,9 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
         cmd = 0;
       }
     }
-    let maxV = axisMaxSpeed(spec, axis) * condF * precision;
+    // precisiemodus: de lier krijgt een echte kruipsnelheid (voor kwetsbare landingen), overige assen 25 %
+    const prec = input.precision ? (axis === 'hoist' ? Math.min(precision, 0.1) * (spec.effects.precisionFactor < 0.25 ? 0.7 : 1) : precision) : 1;
+    let maxV = axisMaxSpeed(spec, axis) * condF * prec;
     if (axis === 'hoist' && cmd > 0) maxV *= loadF;
     if (axis === 'drive') {
       const gi = groundAt(ctx.ground, s.baseX, ctx.groundFallback);

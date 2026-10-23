@@ -258,9 +258,22 @@ export class Simulation {
   private spawnHook(at?: { x: number; y: number; z: number }): void {
     const tip = this.geom.tip;
     let topY = at ? at.y : tip.y - this.rope.length;
-    if (topY - this.hookH < 0.05) topY = this.hookH + 0.05;
     const x = at ? at.x : tip.x;
     const z = at ? at.z : tip.z;
+    // nooit in een obstakel of last verschijnen: boven het hoogste oppervlak onder de haak blijven
+    let floor = 0;
+    const hw = this.hookW / 2 + 0.05;
+    for (const c of this.colliders) {
+      if (c.kind === 'ceiling' || c.minY > topY) continue;
+      if (x + hw > c.minX && x - hw < c.maxX && z + hw > c.minZ && z - hw < c.maxZ) floor = Math.max(floor, c.maxY);
+    }
+    for (const l of this.loads) {
+      const b = l.cb.body;
+      if (l.status === 'consumed' || b.pos.y - b.halfH > topY) continue;
+      if (Math.abs(x - b.pos.x) < b.halfW + hw && Math.abs(z - b.pos.z) < b.depth / 2 + hw) floor = Math.max(floor, b.pos.y + b.halfH);
+    }
+    // (de kabel mag dan slap hangen; de haak komt nooit onder de grond of in een obstakel)
+    if (topY - this.hookH < floor + 0.05) topY = floor + this.hookH + 0.05;
     const body = createBoxBody({ mass: this.hookMassKg, width: this.hookW, height: this.hookH, depth: this.hookW, x, y: topY - this.hookH, z, apexHeight: 0.02, dragCoeff: 1 });
     this.hookBody = this.world.addBody(HOOK_ID, body);
     this.world.ropeBody = this.hookBody;
@@ -446,10 +459,12 @@ export class Simulation {
     this.capacityT = allowedCapacityT(this.spec, this.crane);
     const loadT = this.tensionF / GRAVITY / 1000;
     this.loadPct = Math.min(999, loadPercent(loadT, this.capacityT));
-    this.lmiPct = Math.min(999, loadPercent(Math.max(this.tensionFast, this.rope.tension) / GRAVITY / 1000, this.capacityT));
+    this.lmiPct = Math.min(999, loadPercent(this.tensionFast / GRAVITY / 1000, this.capacityT));
+    const rawPct = loadPercent(this.rope.tension / GRAVITY / 1000, this.capacityT);
     if (!this.attached) this.lmiLatched = false;
-    else if (this.lmiPct >= 100 || this.loadPct >= 100) this.lmiLatched = true;
-    else if (this.loadPct < 95 && this.lmiPct < 95) this.lmiLatched = false;
+    // afschakelen bij aanhoudend ≥ 100 % of een duidelijke piek; vrijgeven pas onder 97 %
+    else if (this.lmiPct >= 101 || rawPct >= 112 || this.loadPct >= 100) this.lmiLatched = true;
+    else if (this.loadPct < 97 && this.lmiPct < 99) this.lmiLatched = false;
     this.computeStabilityModel();
     updateTilt(this.crane, this.stability?.tippingRatio ?? 0, dt, this.difficulty.tipping && !this.spec.gb.anchored);
 

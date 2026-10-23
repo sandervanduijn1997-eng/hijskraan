@@ -1,0 +1,595 @@
+import type { CraneInput } from '../../src/cranes/controllers/craneInput';
+import { emptyInput } from '../../src/cranes/controllers/craneInput';
+import { axisMaxSpeed, rampTime } from '../../src/cranes/controllers/craneController';
+import type { Axis } from '../../src/cranes/models/craneState';
+import { cloneCraneState } from '../../src/cranes/models/craneState';
+import { computeGeometry, solveBoomIK } from '../../src/cranes/models/kinematics';
+import type { MissionDef, TaskDef } from '../../src/missions/data/types';
+import { validateMission } from '../../src/missions/validation/validateMission';
+import { loadBottomCenter } from '../../src/missions/validation/placement';
+import type { DifficultyProfile } from '../../src/sim/difficulty';
+import type { LoadRuntime } from '../../src/sim/simulation';
+import { Simulation } from '../../src/sim/simulation';
+import { DEG, clamp, wrapAngle } from '../../src/utils/math';
+
+/**
+ * Speelt een complete missie met dezelfde besturingsinvoer als een speler (geen spiekfuncties):
+ * plannen, rijden, stempels/opbouw, over obstakels hijsen, uitslingeren en precies neerzetten.
+ * Bedoeld om te vinden welke missies niet (of nauwelijks) uitvoerbaar zijn.
+ */
+export interface BotReport {
+  id: string;
+  title: string;
+  outcome: string;
+  reason: string;
+  time: number;
+  timeLimit?: number;
+  stars: number;
+  score: number;
+  damage: number;
+  collisions: number;
+  maxSway: number;
+  stuck: string;
+  craneId: string;
+}
+
+type Targets = Partial<Record<'boomAngle' | 'boomLength' | 'trolley' | 'knuckle' | 'knuckleTele' | 'boomAngleK', number>>;
+
+class Bot {
+  readonly sim: Simulation;
+  phase = 'start';
+  private kneeCache = new Map<string, Targets | null>();
+
+  constructor(sim: Simulation) {
+    this.sim = sim;
+  }
+
+  private get gb() {
+    return this.sim.spec.gb;
+  }
+
+  /** Servo met remweg: stuur op een snelheid die op tijd kan afremmen. */
+  private servo(axis: Axis, err: number, maxCmd = 1, deadband = 0.003): number {
+    const vmax = axisMaxSpeed(this.sim.spec, axis);
+    if (vmax <= 0) return 0;
+    if (Math.abs(err) < deadband) return 0;
+    const a = (vmax / rampTime(this.sim.spec, axis)) * 1.3;
+    const v = Math.sign(err) * Math.min(vmax, Math.sqrt(2 * a * Math.abs(err)) * 0.75);
+    return clamp(v / vmax, -maxCmd, maxCmd);
+  }
+
+  private ceilingY(): number {
+    let y = Infinity;
+    for (const o of this.sim.mission.obstacles) if (o.kind === 'ceiling') y = Math.min(y, o.y);
+    return y;
+  }
+
+  /** Gewenste kraanstand voor tip op straal u met minimale tiphoogte yMin. */
+  private solve(u: number, yMin: number): Targets | null {
+    const spec = this.sim.spec;
+    const gb = this.gb;
+    const s = this.sim.crane;
+    const ceil = this.ceilingY() - 1.0;
+    switch (spec.cfg.kind) {
+      case 'tower':
+        if (u < (gb.trolleyMin ?? 0) || u > (gb.jibLength ?? 0)) return null;
+        return { trolley: u };
+      case 'telescopic': {
+        const yCap = Math.min(ceil, gb.pivotHeight + gb.boomMax);
+        for (let y = Math.max(yMin, gb.pivotHeight + 1); y <= yCap; y += 0.5) {
+          const ik = solveBoomIK(spec, u, y);
+          const st = cloneCraneState(s);
+          st.boomAngle = ik.angle;
+          st.boomLength = ik.length;
+          st.slew = 0;
+          st.tilt = 0;
+          const g = computeGeometry(spec, st);
+          if (Math.abs(g.tipU - u) < 0.15 && g.tipHeight >= yMin - 0.05 && g.tipHeight <= ceil + 0.5) return { boomAngle: ik.angle, boomLength: ik.length };
+        }
+        return null;
+      }
+      case 'lattice': {
+        let lo = gb.boomAngleMinDeg * DEG;
+        let hi = gb.boomAngleMaxDeg * DEG;
+        const st = cloneCraneState(s);
+        st.slew = 0;
+        st.tilt = 0;
+        const tipAt = (a: number) => {
+          st.boomAngle = a;
+          return computeGeometry(spec, st);
+        };
+        if (tipAt(lo).tipU < u || tipAt(hi).tipU > u) return null;
+        for (let i = 0; i < 40; i++) {
+          const mid = (lo + hi) / 2;
+          if (tipAt(mid).tipU > u) lo = mid;
+          else hi = mid;
+        }
+        const g = tipAt((lo + hi) / 2);
+        if (g.tipHeight < yMin - 0.05) return null;
+        return { boomAngle: (lo + hi) / 2 };
+      }
+      case 'knuckle': {
+        const key = `${u.toFixed(1)}|${yMin.toFixed(1)}`;
+        if (this.kneeCache.has(key)) return this.kneeCache.get(key)!;
+        let best: Targets | null = null;
+        let bestScore = Infinity;
+        const st = cloneCraneState(s);
+        st.slew = 0;
+        for (let a1 = gb.boomAngleMinDeg; a1 <= gb.boomAngleMaxDeg; a1 += 1.5) {
+          for (let a2 = gb.knuckleMinDeg ?? -165; a2 <= (gb.knuckleMaxDeg ?? 20); a2 += 2) {
+            for (let t = 0; t <= (gb.knuckleTeleMax ?? 0) + 1e-6; t += 0.25) {
+              st.boomAngle = a1 * DEG;
+              st.knuckle = a2 * DEG;
+              st.knuckleTele = t;
+              const g = computeGeometry(spec, st);
+              const du = Math.abs(g.tipU - u);
+              if (du > 0.12 || g.tipHeight < yMin || g.tipHeight > ceil) continue;
+              // voorkeur: lage tip (korte kabel), weinig telescoop, armen boven het obstakel
+              const score = (g.tipHeight - yMin) * 2 + t * 0.2 + du * 10;
+              if (score < bestScore) {
+                bestScore = score;
+                best = { boomAngleK: a1 * DEG, knuckle: a2 * DEG, knuckleTele: t };
+              }
+            }
+          }
+        }
+        this.kneeCache.set(key, best);
+        return best;
+      }
+    }
+  }
+
+  /** Stuur alle assen naar de doelstand; geeft true als die bereikt is. */
+  private drive(t: Targets, inp: CraneInput, maxCmd = 1): boolean {
+    const s = this.sim.crane;
+    let done = true;
+    const set = (axis: Axis, err: number, tol: number) => {
+      const c = this.servo(axis, err, maxCmd, tol * 0.5);
+      (inp as unknown as Record<string, number>)[axis] = c;
+      if (Math.abs(err) > tol || Math.abs(s.vel[axis]) > axisMaxSpeed(this.sim.spec, axis) * 0.05) done = false;
+    };
+    if (t.boomAngle !== undefined) set('luff', t.boomAngle - s.boomAngle, 0.002);
+    if (t.boomAngleK !== undefined) set('luff', t.boomAngleK - s.boomAngle, 0.004);
+    if (t.boomLength !== undefined) set('tele', t.boomLength - s.boomLength, 0.02);
+    if (t.trolley !== undefined) set('trolley', t.trolley - s.trolley, 0.02);
+    if (t.knuckle !== undefined) set('knuckle', t.knuckle - s.knuckle, 0.004);
+    if (t.knuckleTele !== undefined) set('knuckleTele', t.knuckleTele - s.knuckleTele, 0.02);
+    return done;
+  }
+
+  private slewTo(x: number, inp: CraneInput): boolean {
+    const desired = x >= this.sim.geom.slewX ? 0 : Math.PI;
+    const err = wrapAngle(desired - this.sim.crane.slew);
+    inp.slew = this.servo('slew', err, 1, 0.0005);
+    return Math.abs(err) < 0.002 && Math.abs(this.sim.crane.vel.slew) < 0.003;
+  }
+
+  private hoistTo(y: number, inp: CraneInput, maxCmd = 1): boolean {
+    const err = y - this.sim.hookPoint().y;
+    inp.hoist = this.servo('hoist', err, maxCmd, 0.02);
+    return Math.abs(err) < 0.08;
+  }
+
+  /** Hoogste obstakel (bovenkant) tussen twee x-waarden in de werklijn. */
+  travelTop(x0: number, x1: number, pad: number): number {
+    const lo = Math.min(x0, x1) - pad;
+    const hi = Math.max(x0, x1) + pad;
+    let top = 0;
+    for (const c of this.sim.colliders) {
+      if (c.kind === 'ceiling') continue;
+      if (c.maxZ < -1 || c.minZ > 1) continue;
+      if (c.maxX < lo || c.minX > hi) continue;
+      top = Math.max(top, c.maxY);
+    }
+    for (const l of this.sim.loads) {
+      if (l === this.sim.attached || l.status === 'consumed') continue;
+      const b = l.cb.body;
+      if (b.pos.x + b.halfW < lo || b.pos.x - b.halfW > hi) continue;
+      top = Math.max(top, b.pos.y + b.halfH);
+    }
+    return top;
+  }
+
+  /** Pick-and-carry: rijpositie zodat x binnen comfortabel bereik ligt. */
+  private carryBase(x: number): number | null {
+    const sim = this.sim;
+    const half = sim.spec.cfg.visual.carrierLength / 2;
+    const h = sim.spec.cfg.visual.carrierHeight + 1.2;
+    const free = (bx: number) =>
+      bx - half >= sim.mission.bounds.minX &&
+      bx + half <= sim.mission.bounds.maxX &&
+      !sim.colliders.some((c) => c.kind !== 'crane' && c.minY <= h && c.minZ < 1.6 && c.maxZ > -1.6 && bx + half > c.minX && bx - half < c.maxX);
+    let best: number | null = null;
+    let bestD = Infinity;
+    for (let bx = sim.mission.bounds.minX; bx <= sim.mission.bounds.maxX; bx += 0.25) {
+      if (!free(bx)) continue;
+      const u = Math.abs(x - (bx + this.gb.slewOffsetX));
+      if (u < this.gb.boomMin * 0.75 || u > this.gb.boomMin * 1.35) continue;
+      const d = Math.abs(bx - sim.crane.baseX);
+      if (d < bestD) {
+        bestD = d;
+        best = bx;
+      }
+    }
+    return best;
+  }
+
+  private driveBase(x: number, inp: CraneInput): boolean {
+    const err = x - this.sim.crane.baseX;
+    inp.drive = this.servo('drive', err, 1, 0.03);
+    return Math.abs(err) < 0.1 && Math.abs(this.sim.crane.vel.drive) < 0.03;
+  }
+
+  // ------------------------------------------------------------------ gedrag
+
+  *run(cfg: { baseX: number } | undefined): Generator<CraneInput, void, void> {
+    const sim = this.sim;
+    const m = sim.mission;
+    const needOutriggers = () => this.gb.outriggerCount > 0 && this.gb.setupType !== 'selfErect' && sim.spec.cfg.carrier !== 'carryDeck';
+    for (const task of m.tasks) {
+      const idx = m.tasks.indexOf(task);
+      if (sim.tasks[idx].status === 'done') continue;
+      if (task.type === 'setup') {
+        this.phase = 'opbouw';
+        while (sim.crane.setupProgress < 1) {
+          const i = emptyInput();
+          i.setupHold = true;
+          yield i;
+        }
+      } else if (task.type === 'drive') {
+        yield* this.stowOutriggers();
+        this.phase = 'rijden naar werkpositie';
+        const x = (task.x0 + task.x1) / 2;
+        while (!this.driveBase(x, (this.tmp = emptyInput()))) yield this.tmp;
+        for (let k = 0; k < 30; k++) yield emptyInput();
+      } else if (task.type === 'outriggers') {
+        if (cfg && Math.abs(cfg.baseX - sim.crane.baseX) > 0.3 && m.requirements.minGroundFactor) {
+          yield* this.stowOutriggers();
+          this.phase = 'rijden naar stevige ondergrond';
+          while (!this.driveBase(cfg.baseX, (this.tmp = emptyInput()))) yield this.tmp;
+        }
+        yield* this.deployOutriggers();
+      } else if (task.type === 'deliver') {
+        if (needOutriggers() && sim.support.mode !== 'outriggers') yield* this.deployOutriggers();
+        yield* this.deliver(task);
+      } else if (task.type === 'stow') {
+        this.phase = 'transportstand';
+        for (;;) {
+          const i = emptyInput();
+          const t: Targets = sim.spec.cfg.kind === 'tower' ? { trolley: this.gb.trolleyMin ?? 0 } : { boomAngle: this.gb.boomAngleMinDeg * DEG + 0.01 };
+          if (sim.spec.cfg.kind === 'telescopic') t.boomLength = this.gb.boomMin;
+          const a = this.drive(t, i);
+          const b = this.hoistTo(sim.geom.tipHeight - this.gb.ropeMin - sim.hookH - 0.5, i);
+          if ((sim.tasks[idx].status as string) === 'done') break;
+          yield i;
+          void a;
+          void b;
+        }
+      }
+    }
+    for (;;) yield emptyInput();
+  }
+
+  private tmp: CraneInput = emptyInput();
+
+  private *giveUp(reason: string): Generator<CraneInput> {
+    this.phase = `FOUT: ${reason}`;
+    for (;;) yield emptyInput();
+  }
+
+  private *stowOutriggers(): Generator<CraneInput> {
+    const s = this.sim.crane;
+    if (s.outriggerJack.some((j) => j > 0) || s.outriggerBeam.some((b) => b > 0)) {
+      this.phase = 'stempels inhalen';
+      this.sim.outriggerAuto.outriggerAuto = 'retract';
+      while (s.outriggerJack.some((j) => j > 0) || s.outriggerBeam.some((b) => b > 0)) yield emptyInput();
+    }
+  }
+
+  private *deployOutriggers(): Generator<CraneInput> {
+    this.phase = 'stempels uitzetten';
+    let t = 0;
+    while (this.sim.support.mode !== 'outriggers' && t < 60 * 40) {
+      if (this.sim.outriggerAuto.outriggerAuto === 'none') this.sim.outriggerAuto.outriggerAuto = 'deploy';
+      t++;
+      yield emptyInput();
+    }
+  }
+
+  private *deliver(task: Extract<TaskDef, { type: 'deliver' }>): Generator<CraneInput> {
+    const sim = this.sim;
+    const load = sim.loads.find((l) => l.id === task.loadId)!;
+    const zone = sim.mission.zones.find((z) => z.id === task.zoneId)!;
+    const idx = sim.tasks.findIndex((t) => t.def === task);
+    const carry = sim.spec.gb.driveWithLoadMaxPct >= 100;
+    const lt = load.type;
+    const ropeMin = this.gb.ropeMin;
+    const hookH = sim.hookH;
+
+    // wacht tot de taak actief is (volgorde)
+    while (sim.tasks[idx].status === 'pending') yield emptyInput();
+
+    // 1. lege haak omhoog
+    const sp = sim.slingPoint(load);
+    const hookTravel = Math.max(sp.y + 0.6, this.travelTop(sim.hookPoint().x, sp.x, 1.5) + 2.0);
+    this.phase = 'haak omhoog';
+    for (let k = 0; k < 60 * 40; k++) {
+      const i = emptyInput();
+      if (this.hoistTo(Math.min(hookTravel, sim.geom.tipHeight - ropeMin - hookH - 0.3), i)) break;
+      yield i;
+    }
+
+    // 2. tip boven het hijspunt
+    this.phase = 'naar de last';
+    yield* this.moveTipTo(sp.x, hookTravel + hookH + ropeMin + 0.5, () => sim.hookPoint().y < hookTravel - 0.5 ? hookTravel : undefined, carry);
+
+    // 3. haak laten zakken en aanslaan
+    this.phase = 'aanslaan';
+    const lowerSecs = 60 + Math.abs(sim.hookPoint().y - sp.y) / (this.gb.hoistSpeed * 0.4);
+    for (let k = 0; k < 60 * lowerSecs && !sim.attached; k++) {
+      const i = emptyInput();
+      const p = sim.slingPoint(load);
+      this.keepTipOver(p.x, i);
+      this.hoistTo(p.y + 0.15, i, 0.6);
+      if (sim.attachCandidate() === load && Math.abs(sim.geom.tip.x - p.x) < 0.3) {
+        sim.toggleRigging();
+        break;
+      }
+      yield i;
+    }
+    if (!sim.attached) {
+      yield* this.giveUp('kon de last niet aanslaan');
+      return;
+    }
+
+    // 4. heffen tot boven alle obstakels tussen hier en de zone
+    // marge boven obstakels: ruim waar het kan, maar binnen wat de kraan op beide stralen (en onder een dak) haalt
+    const top = this.travelTop(load.cb.body.pos.x, zone.x, lt.width / 2 + 0.1);
+    const reachTop = Math.min(this.maxTipHeight(Math.abs(load.cb.body.pos.x - sim.geom.slewX)), this.maxTipHeight(Math.abs(zone.x - sim.geom.slewX)), this.ceilingY() - 1.0);
+    const maxBottom = reachTop - 0.45 - ropeMin - hookH - lt.slingHeight - lt.height;
+    const clear = Math.max(top + 0.3, Math.min(top + 2.5, maxBottom));
+    const hookY = clear + lt.height + lt.slingHeight;
+    this.phase = 'heffen';
+    yield* this.ensureTipHeight(hookY + hookH + ropeMin + 0.4);
+    const liftSecs = 90 + Math.abs(hookY - sim.hookPoint().y) / (this.gb.hoistSpeed * 0.3);
+    for (let k = 0; k < 60 * liftSecs; k++) {
+      const i = emptyInput();
+      this.keepTipOver(sim.geom.tip.x, i);
+      if (this.hoistTo(hookY, i)) break;
+      if (sim.outcome !== 'running') return;
+      yield i;
+    }
+    if (sim.hookPoint().y < hookY - 0.6) {
+      yield* this.giveUp(`kon niet hoog genoeg heffen (haak ${sim.hookPoint().y.toFixed(1)} m, nodig ${hookY.toFixed(1)} m)`);
+      return;
+    }
+
+    // 5. naar de zone: bij de zone hoeft de tip alleen hoog genoeg te zijn voor de obstakels daar
+    this.phase = 'naar de zone';
+    const nearTop = Math.max(zone.y, this.travelTop(zone.x, zone.x, lt.width / 2 + 0.1));
+    const destY = Math.min(hookY, nearTop + 0.5 + lt.height + lt.slingHeight);
+    // liefst op transporthoogte naar de zone; alleen als dat daar niet kan, op de (lagere) hoogte die de zone vraagt
+    const transitTip = hookY + hookH + ropeMin + 0.4;
+    const uZone = Math.abs(zone.x - sim.geom.slewX);
+    const yTarget = this.solve(uZone, transitTip) ? transitTip : destY + hookH + ropeMin + 0.4;
+    yield* this.moveTipTo(zone.x, yTarget, () => Math.min(hookY, sim.geom.tipHeight - ropeMin - hookH - 0.2), carry);
+
+    // 6. uitslingeren
+    this.phase = 'uitslingeren';
+    for (let k = 0; k < 60 * 60; k++) {
+      const i = emptyInput();
+      this.keepTipOver(this.tipTargetFor(load, zone.x), i);
+      this.hoistTo(hookY, i);
+      if (sim.swayDeg < 0.4 && Math.abs(load.cb.body.vel.x) < 0.03) break;
+      yield i;
+    }
+
+    // 7. neerzetten met correctie; staat de last naast de zone, dan iets optillen en opnieuw
+    this.phase = 'neerzetten';
+    let retries = 0;
+    for (let k = 0; k < 60 * 240; k++) {
+      if (sim.tasks[idx].status === 'done' || sim.outcome !== 'running') return;
+      const i = emptyInput();
+      const bc = loadBottomCenter(load.cb.body);
+      const resting = load.cb.supports.size > 0 || load.cb.body.sleeping;
+      if (resting && Math.abs(bc.x - zone.x) > zone.tolerance * 0.85 && retries < 4) {
+        retries++;
+        this.phase = `neerzetten (correctie ${retries})`;
+        const up = sim.hookPoint().y + 0.8;
+        for (let q = 0; q < 60 * 30; q++) {
+          const j = emptyInput();
+          if (this.hoistTo(up, j)) break;
+          yield j;
+        }
+        this.offF = loadBottomCenter(load.cb.body).x - sim.geom.tip.x;
+        for (let q = 0; q < 60 * 40; q++) {
+          const j = emptyInput();
+          this.keepTipOver(this.tipTargetFor(load, zone.x), j);
+          this.hoistTo(up, j);
+          if (q > 120 && sim.swayDeg < 0.3 && Math.abs(loadBottomCenter(load.cb.body).x - zone.x) < zone.tolerance * 0.4) break;
+          yield j;
+        }
+        continue;
+      }
+      this.keepTipOver(this.tipTargetFor(load, zone.x), i);
+      const above = bc.y - zone.y;
+      const settled = sim.swayDeg < 0.6;
+      // zoals een speler: grof tot ~1 m boven het vlak, daarna precisie (Shift) met volle toets
+      if (load.cb.supports.size > 0 || load.cb.body.sleeping) {
+        i.precision = true;
+        i.hoist = -1;
+      } else if (!settled && above < 1.0) i.hoist = 0;
+      else if (above > 1.5) i.hoist = this.servo('hoist', -(above - 0.9), 1, 0.02);
+      else {
+        i.precision = true;
+        i.hoist = -1;
+      }
+      yield i;
+    }
+  }
+
+  private offF = 0;
+
+  /**
+   * Doel-x voor de giekpunt zodat de last boven x komt te staan:
+   * een langzaam gefilterde vaste afwijking (excentrisch zwaartepunt) wordt gecompenseerd, en de tip
+   * beweegt licht mee mét de slinger, wat de slinger dempt (zoals een machinist doet).
+   */
+  private tipTargetFor(load: LoadRuntime, x: number): number {
+    const b = load.cb.body;
+    const off = loadBottomCenter(b).x - this.sim.geom.tip.x;
+    this.offF += (off - this.offF) * (1 / 60 / 2.5);
+    return x - this.offF + 0.5 * (off - this.offF);
+  }
+
+  private keepTipOver(x: number, inp: CraneInput): void {
+    const sim = this.sim;
+    if (!this.slewTo(x, inp)) return;
+    const u = Math.abs(x - sim.geom.slewX);
+    const t = this.solveNear(u);
+    if (t) this.drive(t, inp, 0.5);
+  }
+
+  /** Hoogst haalbare tip op straal u (voor het kiezen van een veilige transporthoogte). */
+  maxTipHeight(u: number): number {
+    const spec = this.sim.spec;
+    const gb = this.gb;
+    const st = cloneCraneState(this.sim.crane);
+    st.slew = 0;
+    st.tilt = 0;
+    let best = -Infinity;
+    if (spec.cfg.kind === 'tower') return computeGeometry(spec, st).tipHeight;
+    if (spec.cfg.kind === 'lattice') {
+      const t = this.solve(u, 0);
+      if (!t) return -Infinity;
+      st.boomAngle = t.boomAngle!;
+      return computeGeometry(spec, st).tipHeight;
+    }
+    if (spec.cfg.kind === 'telescopic') {
+      for (let L = gb.boomMin; L <= gb.boomMax + 1e-6; L += 0.5) {
+        const c = (u - gb.pivotU) / L;
+        if (c > 1 || c < Math.cos(gb.boomAngleMaxDeg * DEG)) continue;
+        best = Math.max(best, gb.pivotHeight + L * Math.sqrt(1 - c * c));
+      }
+      return best;
+    }
+    for (let a1 = gb.boomAngleMinDeg; a1 <= gb.boomAngleMaxDeg; a1 += 2) {
+      for (let a2 = gb.knuckleMinDeg ?? -165; a2 <= (gb.knuckleMaxDeg ?? 20); a2 += 3) {
+        for (let t = 0; t <= (gb.knuckleTeleMax ?? 0) + 1e-6; t += 0.5) {
+          st.boomAngle = a1 * DEG;
+          st.knuckle = a2 * DEG;
+          st.knuckleTele = t;
+          const g = computeGeometry(spec, st);
+          if (Math.abs(g.tipU - u) < 0.2) best = Math.max(best, g.tipHeight);
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Doelstand op straal u met behoud van de huidige tiphoogte (fijncorrectie). */
+  private solveNear(u: number): Targets | null {
+    const sim = this.sim;
+    const kind = sim.spec.cfg.kind;
+    if (kind === 'tower') return this.solve(u, 0);
+    if (kind === 'lattice') return this.solve(u, 0);
+    if (kind === 'telescopic') {
+      const ik = solveBoomIK(sim.spec, u, sim.geom.tipHeight);
+      return { boomAngle: ik.angle, boomLength: ik.length };
+    }
+    return this.solve(u, Math.max(0, sim.geom.tipHeight - 0.6));
+  }
+
+  private *ensureTipHeight(yMin: number): Generator<CraneInput> {
+    const sim = this.sim;
+    if (sim.geom.tipHeight >= yMin) return;
+    const u = Math.abs(sim.geom.tip.x - sim.geom.slewX);
+    const t = this.solve(u, yMin);
+    if (!t) return;
+    for (let k = 0; k < 60 * 60; k++) {
+      const i = emptyInput();
+      if (this.drive(t, i)) return;
+      i.hoist = sim.attached ? 0 : i.hoist;
+      yield i;
+    }
+  }
+
+  /** Verplaats de tip naar boven x met minimale tiphoogte; rijdt eerst indien nodig (pick-and-carry). */
+  private *moveTipTo(x: number, yMin: number, hookHold: () => number | undefined, carry: boolean): Generator<CraneInput> {
+    const sim = this.sim;
+    let u = Math.abs(x - sim.geom.slewX);
+    let target = this.solve(u, yMin);
+    if ((!target || carry) && sim.spec.gb.driveSpeed > 0 && carry) {
+      const bx = this.carryBase(x);
+      if (bx !== null && Math.abs(bx - sim.crane.baseX) > 0.2) {
+        const prev = this.phase;
+        this.phase = `${prev} (rijden)`;
+        for (let k = 0; k < 60 * 120; k++) {
+          const i = emptyInput();
+          const hh = hookHold();
+          if (hh !== undefined) this.hoistTo(hh, i);
+          if (this.driveBase(bx, i)) break;
+          yield i;
+        }
+        this.phase = prev;
+        u = Math.abs(x - sim.geom.slewX);
+        target = this.solve(u, yMin);
+      }
+    }
+    if (!target) target = this.solve(u, Math.min(yMin, sim.geom.tipHeight));
+    if (!target) {
+      yield* this.giveUp(`geen kraanstand voor straal ${u.toFixed(1)} m en hoogte ${yMin.toFixed(1)} m`);
+      return;
+    }
+    // eerst omhoog/uit, dan zwenken, dan de rest
+    for (let k = 0; k < 60 * 180; k++) {
+      const i = emptyInput();
+      const hh = hookHold();
+      if (hh !== undefined) this.hoistTo(hh, i);
+      const slewed = this.slewTo(x, i);
+      const reached = this.drive(target, i, slewed ? 0.7 : 0.5);
+      if (slewed && reached) return;
+      if (sim.outcome !== 'running') return;
+      yield i;
+    }
+  }
+}
+
+export function playMission(m: MissionDef, difficulty: DifficultyProfile, maxSeconds = 1800, trace?: (line: string) => void): BotReport {
+  const v = validateMission(m);
+  const f = v.feasibility.find((x) => x.feasible) ?? v.feasibility[0];
+  const cfg = f?.config;
+  const sim = new Simulation({ mission: m, craneId: f?.craneId, difficulty, counterweightIndex: cfg?.cw, boomOptionIndex: cfg?.boom, jibIndex: cfg?.jib });
+  const bot = new Bot(sim);
+  const gen = bot.run(cfg);
+  const steps = Math.round(maxSeconds * 60);
+  let lastPhase = '';
+  let lastDmg = 0;
+  for (let k = 0; k < steps && sim.outcome === 'running'; k++) {
+    const r = gen.next();
+    sim.step(r.value ?? emptyInput());
+    if (trace && (bot.phase !== lastPhase || sim.metrics.damage !== lastDmg || k % 120 === 0)) {
+      const hp = sim.hookPoint();
+      const l = sim.attached ? loadBottomCenter(sim.attached.cb.body) : null;
+      const imp = sim.world.impacts.map((e) => `${e.bodyId}->${e.otherId}@${e.speed.toFixed(2)}`).join(' ');
+      trace(`${sim.time.toFixed(1)} [${bot.phase}] tip=(${sim.geom.tip.x.toFixed(2)},${sim.geom.tip.y.toFixed(2)}) hook=(${hp.x.toFixed(2)},${hp.y.toFixed(2)}) load=${l ? `(${l.x.toFixed(2)},${l.y.toFixed(2)})` : '-'} sway=${sim.swayDeg.toFixed(1)} dmg=${sim.metrics.damage} pct=${sim.loadPct.toFixed(0)} blk=${JSON.stringify(sim.lastControl.blocked)} boom=${(sim.crane.boomAngle * 57.3).toFixed(1)}/${sim.crane.boomLength.toFixed(1)} rope=${sim.rope.length.toFixed(1)}/${sim.crane.ropeLength.toFixed(1)} vH=${sim.crane.vel.hoist.toFixed(2)} slack=${sim.rope.slack} stretch=${sim.rope.stretch.toFixed(2)} ${imp}`);
+      lastPhase = bot.phase;
+      lastDmg = sim.metrics.damage;
+    }
+  }
+  return {
+    id: m.id,
+    title: m.title,
+    outcome: sim.outcome,
+    reason: sim.outcome === 'running' ? `vastgelopen in fase "${bot.phase}"` : sim.failReason,
+    time: Math.round(sim.time),
+    timeLimit: m.timeLimit,
+    stars: sim.score?.stars ?? 0,
+    score: sim.score?.total ?? 0,
+    damage: Math.round(sim.metrics.damage * 10) / 10,
+    collisions: sim.metrics.collisions,
+    maxSway: Math.round(sim.metrics.maxSwayDeg * 10) / 10,
+    stuck: bot.phase,
+    craneId: sim.spec.cfg.id,
+  };
+}

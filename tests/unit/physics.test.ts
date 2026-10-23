@@ -114,3 +114,25 @@ describe('contacten', () => {
     expect(Math.abs(body.angle)).toBeLessThan(0.02);
   });
 });
+
+describe('kabelkracht tijdens hijsen', () => {
+  it('bij gelijkmatig hijsen blijft de gemeten kracht bij het gewicht (geen kunstmatige rem)', () => {
+    const params = defaultPhysicsParams();
+    params.ropeCompliance = 0.15 / (300000 * GRAVITY);
+    params.ropeDamping = 40;
+    const world = new PhysicsWorld(params);
+    const tip = { x: 0, y: 40, z: 0 };
+    const body = createBoxBody({ mass: 200000, width: 8, height: 4, depth: 4, x: 0, y: 40 - 20 - 4 - 2, apexHeight: 2 });
+    world.ropeBody = world.addBody('l', body);
+    const rope = createRope(tip, 20, 2, 60);
+    for (let i = 0; i < 60; i++) world.step(FIXED_DT, SUBSTEPS, rope, { ...tip });
+    let maxT = 0;
+    for (let i = 0; i < 300; i++) {
+      const L0 = rope.length;
+      rope.length -= 0.5 * FIXED_DT;
+      world.step(FIXED_DT, SUBSTEPS, rope, { ...tip }, L0);
+      if (i > 60) maxT = Math.max(maxT, rope.tension);
+    }
+    expect(maxT / (200000 * GRAVITY)).toBeLessThan(1.05);
+  });
+});
