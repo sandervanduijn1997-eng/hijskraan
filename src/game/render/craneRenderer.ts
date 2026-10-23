@@ -382,7 +382,7 @@ function drawTower(g: G, spec: ResolvedCrane, s: CraneState, geo: CraneGeometry,
       truss3(g, a[0], a[1], a[2], c[0], c[1], c[2], cj.width, color);
       // ballastblokken
       const bal = spec.counterweights[0]?.massT ?? 0;
-      if (bal > 0 && geo.jibUnfold >= 1) {
+      if (bal > 0 && geo.jibUnfold >= 1 && (gb.setupType !== 'towerAssembly' || s.setupProgress >= 0.9)) {
         const n = gb.setupType === 'selfErect' ? 2 : 4;
         for (let i = 0; i < n; i++) {
           const u = cj.u1 + 0.4 + i * 1.1;
@@ -390,7 +390,7 @@ function drawTower(g: G, spec: ResolvedCrane, s: CraneState, geo: CraneGeometry,
         }
       }
     }
-    if (geo.jibUnfold >= 1) {
+    if (geo.jibUnfold >= 1 && (gb.setupType !== 'towerAssembly' || s.setupProgress >= 0.5)) {
       // torenspits met trekstangen
       const peak = toWorld(geo, phi, 0, jib.y0 + (gb.setupType === 'selfErect' ? 3 : 7));
       lineW(g, top[0], top[1], top[2], peak[0], peak[1], peak[2], S * 0.3, color);

@@ -11,7 +11,7 @@ import { resolveCrane } from '../cranes/models/craneSpec';
 import type { CraneState } from '../cranes/models/craneState';
 import { createCraneState } from '../cranes/models/craneState';
 import type { CraneGeometry } from '../cranes/models/kinematics';
-import { computeGeometry } from '../cranes/models/kinematics';
+import { computeGeometry, hasSetupProcedure, setupStageLabel } from '../cranes/models/kinematics';
 import type { LoadType } from '../missions/data/loads';
 import { getLoad } from '../missions/data/loads';
 import type { MissionDef, PlaceEffect, TaskDef, ZoneDef } from '../missions/data/types';
@@ -235,7 +235,10 @@ export class Simulation {
       id, kind: 'crane', minX, maxX, minY, maxY, minZ: -z, maxZ: z, onHit: 'damage', landable, label: 'de eigen kraan',
     });
     if (cfg.carrier === 'towerBase') {
-      out.push(mk('own-mast', x - 1, x + 1, 0, (gb.towerHeight ?? 30) - 3, 1, false));
+      // de mast groeit mee tijdens de montage
+      const mast = this.geom?.segments.find((sg) => sg.kind === 'mast');
+      const top = mast ? Math.max(mast.y0, mast.y1) : gb.towerHeight ?? 30;
+      out.push(mk('own-mast', x - 1, x + 1, 0, Math.max(1, top - 3), 1, false));
     } else if (cfg.carrier === 'selfErecting') {
       out.push(mk('own-base', x - half, x + half, 0, cfg.visual.carrierHeight, 2.2, false));
       if (this.crane.setupProgress >= 1) out.push(mk('own-mast', x - 0.7, x + 0.7, cfg.visual.carrierHeight, (gb.towerHeight ?? 20) - 2, 0.7, false));
@@ -246,7 +249,7 @@ export class Simulation {
   }
 
   private refreshCraneColliders(): void {
-    const key = `${this.crane.baseX.toFixed(3)}|${this.crane.setupProgress >= 1}`;
+    const key = `${this.crane.baseX.toFixed(3)}|${Math.round(this.crane.setupProgress * 40)}`;
     if (key === this.craneCollKey) return;
     this.craneCollKey = key;
     this.colliders = [...this.missionColliders, ...this.craneOwnColliders()];
@@ -264,12 +267,12 @@ export class Simulation {
     let floor = 0;
     const hw = this.hookW / 2 + 0.05;
     for (const c of this.colliders) {
-      if (c.kind === 'ceiling' || c.minY > topY) continue;
+      if (c.kind === 'ceiling' || c.minY >= tip.y) continue;
       if (x + hw > c.minX && x - hw < c.maxX && z + hw > c.minZ && z - hw < c.maxZ) floor = Math.max(floor, c.maxY);
     }
     for (const l of this.loads) {
       const b = l.cb.body;
-      if (l.status === 'consumed' || b.pos.y - b.halfH > topY) continue;
+      if (l.status === 'consumed' || b.pos.y - b.halfH >= tip.y) continue;
       if (Math.abs(x - b.pos.x) < b.halfW + hw && Math.abs(z - b.pos.z) < b.depth / 2 + hw) floor = Math.max(floor, b.pos.y + b.halfH);
     }
     // (de kabel mag dan slap hangen; de haak komt nooit onder de grond of in een obstakel)
@@ -443,9 +446,16 @@ export class Simulation {
     if (ctl.blocked.hoist === 'lmi' || ctl.blocked.luff === 'lmi' || ctl.blocked.tele === 'lmi' || ctl.blocked.trolley === 'lmi') {
       if (!this.warnings.has('overload')) this.events.push({ type: 'lmiCutoff' });
     }
-    this.rope.length = this.crane.ropeLength;
     this.refreshCraneColliders();
     this.geom = computeGeometry(this.spec, this.crane);
+    if (this.crane.setupProgress < 1 && hasSetupProcedure(this.spec)) {
+      // tijdens montage/opbouw viert de lier automatisch mee: de haak wordt niet over de grond meegesleept
+      const a = this.ropeAttachPoint();
+      const t = this.geom.tip;
+      const d = Math.hypot(a.x - t.x, a.y - t.y, a.z - t.z);
+      this.crane.ropeLength = clamp(Math.max(this.crane.ropeLength, d + 0.3), this.spec.gb.ropeMin, this.spec.gb.ropeMax);
+    }
+    this.rope.length = this.crane.ropeLength;
     this.rope.tip = { ...this.geom.tip };
 
     // fysica
@@ -504,7 +514,8 @@ export class Simulation {
       slew: this.crane.slew,
       tipRadius: this.geom.tipU,
       tipHeight: this.geom.tipHeight,
-      boomT: this.geom.boomMassT,
+      // een giek die nog gemonteerd wordt ligt op de grond/opleggers en geeft geen kantelmoment
+      boomT: this.crane.setupProgress < 1 && this.spec.gb.setupType === 'boomAssembly' ? 0 : this.geom.boomMassT,
       boomCogRadius: this.geom.boomCogRadius,
       ropeTension: this.tensionF,
       ropeOutwardAngle: Math.atan2(du, dy),
@@ -679,8 +690,8 @@ export class Simulation {
     if (ctl.blocked.drive === 'outriggers') W.raise('driveBlocked', 'info', 'Rijden kan pas met volledig ingehaalde stempels');
     else if (ctl.blocked.drive === 'driveLoad') W.raise('driveBlocked', 'info', 'Rijden met deze last is niet toegestaan');
     else if (ctl.blocked.drive === 'driveObstacle') W.raise('driveBlocked', 'info', 'Obstakel of wereldgrens: kan niet verder rijden');
-    if (this.crane.setupProgress < 1 && (gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly')) {
-      W.raise('setup', 'info', gb.setupType === 'selfErect' ? 'Kraan nog niet opgebouwd — houd B ingedrukt om de opbouwprocedure uit te voeren' : 'Giek nog niet gemonteerd — houd B ingedrukt voor de giekmontage');
+    if (this.crane.setupProgress < 1 && hasSetupProcedure(this.spec)) {
+      W.raise('setup', 'info', gb.setupType !== 'boomAssembly' ? `Kraan nog niet opgebouwd — houd B ingedrukt (${setupStageLabel(this.spec, this.crane.setupProgress)})` : 'Giek nog niet gemonteerd — houd B ingedrukt voor de giekmontage');
     }
     if (this.placementHint && !this.placementHint.valid && this.attached && !lifted && this.rope.slack) {
       W.raise('landing', 'caution', `Onjuiste landingspositie: ${this.placementHint.reasons[0]}`);

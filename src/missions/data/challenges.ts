@@ -93,6 +93,8 @@ export function practiceMission(o: PracticeOptions): MissionDef {
   const loadX = Math.max(slewX + half + load.width / 2 + 1.5 - slewX, reach * 0.45) + slewX;
   const zoneX = Math.max(loadX + load.width + 3, slewX + reach);
   const startU = cfg.kind === 'tower' ? loadX - slewX : 0;
+  // torenkranen moeten ook in de vrije oefening eerst volledig worden opgebouwd
+  const needsBuild = cfg.kind === 'tower';
   return {
     id: 'practice',
     number: 0,
@@ -106,11 +108,11 @@ export function practiceMission(o: PracticeOptions): MissionDef {
     environment: o.environment,
     timeOfDay: 'day',
     weather: o.windBase > 10 ? 'cloudy' : 'clear',
-    crane: { x: 0, boomAngleDeg: 50, boomLength: gb.boomMin * 1.3, trolley: startU, ropeLength: 6, outriggersDeployed: true, preassembled: true, knuckleDeg: -90 },
+    crane: { x: 0, boomAngleDeg: 50, boomLength: gb.boomMin * 1.3, trolley: startU, ropeLength: 6, outriggersDeployed: true, preassembled: !needsBuild, knuckleDeg: -90 },
     loads: [{ id: 'l1', type: o.loadType, x: loadX, y: 0 }],
     zones: [{ id: 'z1', label: 'Oefenzone', x: zoneX, y: 0, tolerance: 0.6 }],
     obstacles: [],
-    tasks: [{ type: 'deliver', loadId: 'l1', zoneId: 'z1' }],
+    tasks: [...(needsBuild ? [{ type: 'setup' as const, label: 'Kraan volledig opbouwen' }] : []), { type: 'deliver', loadId: 'l1', zoneId: 'z1' }],
     wind: { base: o.windBase, gust: o.windBase > 0 ? 0.4 : 0, direction: 1, variable: o.windBase > 6 },
     parTime: 300,
     maxDamage: 1000,

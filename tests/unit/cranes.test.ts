@@ -67,7 +67,7 @@ describe('giekgeometrie en haakpositie', () => {
 
   it('torenkraan: haak hangt onder de loopkat op torenhoogte', () => {
     const spec = resolveCrane(getCrane('tc160'));
-    const s = createCraneState(spec, { x: 5, trolley: 30 });
+    const s = createCraneState(spec, { x: 5, trolley: 30, preassembled: true });
     const g = computeGeometry(spec, s);
     expect(g.tip.x).toBeCloseTo(35, 4);
     expect(g.tipHeight).toBeCloseTo(spec.cfg.visual.carrierHeight + (spec.gb.towerHeight ?? 0) - 0.9, 4);

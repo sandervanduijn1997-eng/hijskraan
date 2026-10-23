@@ -62,7 +62,7 @@ export function createCraneState(spec: ResolvedCrane, start: CraneStartConfig): 
   const n = gb.outriggerCount;
   const deployed = start.outriggersDeployed ?? false;
   const cwMax = spec.counterweights.length - 1;
-  const needsSetup = gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly';
+  const needsSetup = gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly' || gb.setupType === 'towerAssembly';
   const boomOptionIndex = clamp(start.boomOptionIndex ?? 0, 0, Math.max(0, spec.boomOptions.length - 1));
   const boomLength =
     spec.cfg.kind === 'lattice'

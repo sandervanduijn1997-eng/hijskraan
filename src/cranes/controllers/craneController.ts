@@ -240,7 +240,7 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
 
   // --- opbouwprocedure ---
   const setupDone = s.setupProgress >= 1;
-  if (!setupDone && (gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly')) {
+  if (!setupDone && (gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly' || gb.setupType === 'towerAssembly')) {
     if (input.setupHold) {
       s.setupProgress = Math.min(1, s.setupProgress + dt / Math.max(1, gb.setupTime));
       s.engine = approach(s.engine, 0.6, dt * 2);

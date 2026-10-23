@@ -1,6 +1,6 @@
 import { levelFor } from '../../career/career';
 import { outriggerPad } from '../../cranes/controllers/craneController';
-import { SELF_ERECT_STAGES, selfErectStage } from '../../cranes/models/kinematics';
+import { hasSetupProcedure, setupStageLabel } from '../../cranes/models/kinematics';
 import { formatMoney } from '../../economy/economy';
 import { GROUND_LABEL, groundAt } from '../../physics/ground';
 import type { ActionId } from '../../save/saveSystem';
@@ -151,11 +151,11 @@ export class Hud {
       setClass(this.el.timer, left < 60 ? 'timer low' : 'timer');
     } else setText(this.el.timer, `⏱ ${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, '0')}`);
     // opbouw
-    const needsSetup = (gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly') && sim.crane.setupProgress < 1;
+    const needsSetup = hasSetupProcedure(sim.spec) && sim.crane.setupProgress < 1;
     this.el.setup.style.display = needsSetup || sim.outriggerAuto.outriggerAuto !== 'none' ? '' : 'none';
     if (needsSetup) {
       const p = sim.crane.setupProgress;
-      const label = gb.setupType === 'selfErect' ? `${SELF_ERECT_STAGES[Math.min(3, selfErectStage(p))].label} — houd B` : `Giekmontage ${Math.round(p * 100)} % — houd B`;
+      const label = `${setupStageLabel(sim.spec, p)} — houd B`;
       setText(this.el.setupLbl, label);
       this.el.setupFill.style.width = `${p * 100}%`;
     } else if (sim.outriggerAuto.outriggerAuto !== 'none') {
@@ -244,7 +244,7 @@ export class Hud {
       const hints = controlHints(kind, ctx.outriggerMode, gb.driveSpeed > 0, kind === 'telescopic');
       for (const hi of hints) this.keysEl.append(h('span', null, ...hi.keys.map((k) => kbd(keyLabel(ctx.bindings[k][0] ?? '?'))), ' ', hi.label));
       if (gb.outriggerCount > 0 && gb.setupType !== 'selfErect' && !ctx.outriggerMode) this.keysEl.append(h('span', null, kbd(keyLabel(ctx.bindings.outriggerMode[0])), ' Stempels'));
-      if (gb.setupType === 'selfErect' || gb.setupType === 'boomAssembly') this.keysEl.append(h('span', null, kbd(keyLabel(ctx.bindings.setup[0])), ' Opbouw'));
+      if (hasSetupProcedure(sim.spec)) this.keysEl.append(h('span', null, kbd(keyLabel(ctx.bindings.setup[0])), ' Opbouw'));
       this.keysEl.append(h('span', null, kbd(keyLabel(ctx.bindings.pause[0])), ' Pauze'));
     }
     this.drawPlan();

@@ -130,7 +130,8 @@ export interface CraneGameBalance {
   /** Opbouwtijden (s, gecomprimeerde speltijd). */
   outriggerTime: number;
   setupTime: number;
-  setupType: 'none' | 'outriggers' | 'selfErect' | 'boomAssembly';
+  /** Opbouwprocedure: zelfopbouw, giekmontage (vakwerk) of volledige montage van een torenkraan. */
+  setupType: 'none' | 'outriggers' | 'selfErect' | 'boomAssembly' | 'towerAssembly';
   /** Brandstofverbruik l/h bij vollast (spelwaarde). */
   fuelRate: number;
 }

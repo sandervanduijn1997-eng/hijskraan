@@ -109,3 +109,35 @@ describe('mislukkingen en veiligheidsgrenzen', () => {
     expect(sim.lastControl.blocked.trolley).toBeUndefined();
   });
 });
+
+describe('torenkraan volledig opbouwen', () => {
+  it('missie 12: eerst fundering, mastsecties, draaikrans, tegengiek, giek en ballast; daarna pas bedienen', () => {
+    const sim = new Simulation({ mission: getMission('m12')! });
+    const towerH = sim.spec.gb.towerHeight!;
+    const mastTop = () => Math.max(...sim.geom.segments.filter((s) => s.kind === 'mast').map((s) => s.y1));
+    expect(sim.tasks[0].def.type).toBe('setup');
+    expect(sim.capacityT).toBe(0);
+    run(sim, 2, () => { const i = emptyInput(); i.trolley = 1; i.hoist = 1; return i; });
+    expect(sim.lastControl.blocked.trolley).toBe('setup');
+    const heights: number[] = [];
+    run(sim, 120, () => { heights.push(mastTop()); const i = emptyInput(); i.setupHold = true; return i; }, () => sim.crane.setupProgress >= 1);
+    // de mast groeit in stappen (secties) tot de volle hoogte
+    expect(heights[0]).toBeLessThan(towerH * 0.3);
+    expect(new Set(heights.map((h) => h.toFixed(1))).size).toBeGreaterThanOrEqual(8);
+    sim.step(emptyInput());
+    expect(sim.tasks[0].status).toBe('done');
+    expect(mastTop()).toBeCloseTo(sim.spec.cfg.visual.carrierHeight + towerH, 3);
+    run(sim, 2, () => { const i = emptyInput(); i.trolley = 1; return i; });
+    expect(sim.lastControl.blocked.trolley).toBeUndefined();
+    expect(sim.capacityT).toBeGreaterThan(0);
+  });
+
+  it('loslaten van B pauzeert de montage', () => {
+    const sim = new Simulation({ mission: getMission('m13')! });
+    run(sim, 10, () => { const i = emptyInput(); i.setupHold = true; return i; });
+    const p = sim.crane.setupProgress;
+    expect(p).toBeGreaterThan(0.1);
+    run(sim, 5, () => emptyInput());
+    expect(sim.crane.setupProgress).toBe(p);
+  });
+});

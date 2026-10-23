@@ -70,7 +70,10 @@ describe('slingergedrag van de last aan de kraan', () => {
 
   it('torenkraan: giekpunt beweegt niet sneller dan een echte torenkraan', () => {
     const sim = new Simulation({ mission: getMission('m12')! });
+    run(sim, 120, () => { const i = emptyInput(); i.setupHold = true; return i; }, () => sim.crane.setupProgress >= 1);
+    expect(sim.crane.setupProgress).toBe(1);
     run(sim, 20, () => { const i = emptyInput(); i.slew = 1; i.trolley = 1; return i; });
+    expect(Math.abs(sim.crane.vel.slew)).toBeGreaterThan(0);
     const tipSpeed = Math.abs(sim.crane.vel.slew) * sim.geom.radius;
     expect(tipSpeed).toBeLessThan(6);
   });

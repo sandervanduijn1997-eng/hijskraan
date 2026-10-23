@@ -35,6 +35,8 @@ export interface BotReport {
 
 type Targets = Partial<Record<'boomAngle' | 'boomLength' | 'trolley' | 'knuckle' | 'knuckleTele' | 'boomAngleK', number>>;
 
+const FOLLOW = 0.5;
+
 class Bot {
   readonly sim: Simulation;
   phase = 'start';
@@ -199,15 +201,17 @@ class Bot {
       bx - half >= sim.mission.bounds.minX &&
       bx + half <= sim.mission.bounds.maxX &&
       !sim.colliders.some((c) => c.kind !== 'crane' && c.minY <= h && c.minZ < 1.6 && c.maxZ > -1.6 && bx + half > c.minX && bx - half < c.maxX);
+    // voorkeur: straal rond 1,1 × de kortste giek (veel capaciteit), anders verder reiken; korte rit telt licht mee
     let best: number | null = null;
-    let bestD = Infinity;
+    let bestScore = Infinity;
+    const ideal = this.gb.boomMin * 1.1;
     for (let bx = sim.mission.bounds.minX; bx <= sim.mission.bounds.maxX; bx += 0.25) {
       if (!free(bx)) continue;
       const u = Math.abs(x - (bx + this.gb.slewOffsetX));
-      if (u < this.gb.boomMin * 0.75 || u > this.gb.boomMin * 1.35) continue;
-      const d = Math.abs(bx - sim.crane.baseX);
-      if (d < bestD) {
-        bestD = d;
+      if (u < this.gb.boomMin * 0.6 || u > this.gb.boomMax * 0.9) continue;
+      const score = Math.abs(u - ideal) * 3 + Math.abs(bx - sim.crane.baseX) * 0.1;
+      if (score < bestScore) {
+        bestScore = score;
         best = bx;
       }
     }
@@ -350,13 +354,20 @@ class Bot {
     const clear = Math.max(top + 0.3, Math.min(top + 2.5, maxBottom));
     const hookY = clear + lt.height + lt.slingHeight;
     this.phase = 'heffen';
-    yield* this.ensureTipHeight(hookY + hookH + ropeMin + 0.4);
-    const liftSecs = 90 + Math.abs(hookY - sim.hookPoint().y) / (this.gb.hoistSpeed * 0.3);
+    // recht omhoog: eerst de lier; staat de kabel op zijn kortst, dan de giekpunt verticaal optillen (zelfde straal)
+    const u0 = Math.abs(sim.geom.tipU);
+    const x0 = sim.geom.tip.x;
+    const liftSecs = 120 + Math.abs(hookY - sim.hookPoint().y) / (this.gb.hoistSpeed * 0.25);
     for (let k = 0; k < 60 * liftSecs; k++) {
       const i = emptyInput();
-      this.keepTipOver(sim.geom.tip.x, i);
-      if (this.hoistTo(hookY, i)) break;
       if (sim.outcome !== 'running') return;
+      const hookOk = this.hoistTo(hookY, i);
+      if (hookOk) break;
+      const ropeShort = sim.rope.length <= ropeMin + 0.15;
+      if (ropeShort || sim.geom.tipHeight < hookY + hookH + ropeMin + 0.2) {
+        const t = this.solve(u0, sim.geom.tipHeight + 0.5);
+        if (t) this.drive(t, i, 0.35);
+      } else this.keepTipOver(x0, i);
       yield i;
     }
     if (sim.hookPoint().y < hookY - 0.6) {
@@ -414,12 +425,22 @@ class Bot {
       this.keepTipOver(this.tipTargetFor(load, zone.x), i);
       const above = bc.y - zone.y;
       const settled = sim.swayDeg < 0.6;
+      // de laatste meters (en vlak boven obstakels bij de zone) pas zakken als de last stil hangt en uitgelijnd is
+      const sideTop = Math.max(zone.y, this.travelTop(zone.x, zone.x, lt.width / 2 + 1.5));
+      const aboveSide = bc.y - sideTop;
+      const aligned = Math.abs(bc.x - zone.x) < Math.min(zone.tolerance * 0.6, 0.25) && sim.swayDeg < 1.0;
+      const resting0 = load.cb.supports.size > 0 || load.cb.body.sleeping;
+      if (!resting0 && !aligned && (aboveSide < 1.2 || above < 1.2)) {
+        i.hoist = aboveSide < 0.6 ? this.servo('hoist', 0.6 - aboveSide, 0.4, 0.02) : 0;
+        yield i;
+        continue;
+      }
       // zoals een speler: grof tot ~1 m boven het vlak, daarna precisie (Shift) met volle toets
       if (load.cb.supports.size > 0 || load.cb.body.sleeping) {
         i.precision = true;
         i.hoist = -1;
       } else if (!settled && above < 1.0) i.hoist = 0;
-      else if (above > 1.5) i.hoist = this.servo('hoist', -(above - 0.9), 1, 0.02);
+      else if (above > 1.5 && aboveSide > 1.2) i.hoist = this.servo('hoist', -Math.min(above - 0.9, aboveSide - 0.8), 1, 0.02);
       else {
         i.precision = true;
         i.hoist = -1;
@@ -439,7 +460,7 @@ class Bot {
     const b = load.cb.body;
     const off = loadBottomCenter(b).x - this.sim.geom.tip.x;
     this.offF += (off - this.offF) * (1 / 60 / 2.5);
-    return x - this.offF + 0.5 * (off - this.offF);
+    return x - this.offF + FOLLOW * (off - this.offF);
   }
 
   private keepTipOver(x: number, inp: CraneInput): void {
@@ -500,20 +521,6 @@ class Bot {
     return this.solve(u, Math.max(0, sim.geom.tipHeight - 0.6));
   }
 
-  private *ensureTipHeight(yMin: number): Generator<CraneInput> {
-    const sim = this.sim;
-    if (sim.geom.tipHeight >= yMin) return;
-    const u = Math.abs(sim.geom.tip.x - sim.geom.slewX);
-    const t = this.solve(u, yMin);
-    if (!t) return;
-    for (let k = 0; k < 60 * 60; k++) {
-      const i = emptyInput();
-      if (this.drive(t, i)) return;
-      i.hoist = sim.attached ? 0 : i.hoist;
-      yield i;
-    }
-  }
-
   /** Verplaats de tip naar boven x met minimale tiphoogte; rijdt eerst indien nodig (pick-and-carry). */
   private *moveTipTo(x: number, yMin: number, hookHold: () => number | undefined, carry: boolean): Generator<CraneInput> {
     const sim = this.sim;
@@ -537,21 +544,33 @@ class Bot {
       }
     }
     if (!target) target = this.solve(u, Math.min(yMin, sim.geom.tipHeight));
+    // terugval: stapsgewijs lager zoeken (de last hangt dan lager, maar alleen vlak bij het doel)
+    for (let y = yMin - 0.25; !target && y > yMin - 2.5; y -= 0.25) target = this.solve(u, y);
     if (!target) {
       yield* this.giveUp(`geen kraanstand voor straal ${u.toFixed(1)} m en hoogte ${yMin.toFixed(1)} m`);
       return;
     }
-    // eerst omhoog/uit, dan zwenken, dan de rest
-    for (let k = 0; k < 60 * 180; k++) {
+    // zwenken op de kleinste van huidige en doelstraal (meeste capaciteit); daarna pas naar de doelstraal
+    const uNow = Math.abs(sim.geom.tipU);
+    let slewTarget = u < uNow ? target : this.solve(uNow, Math.min(yMin, sim.geom.tipHeight)) ?? target;
+    let boost = 0;
+    for (let k = 0; k < 60 * 240; k++) {
       const i = emptyInput();
+      // giek raakt een obstakel: kies een hogere giekstand (zoals een speler de giek verder opheft)
+      if (sim.lastControl.boomHit && boost < 6) {
+        boost += 0.5;
+        target = this.solve(u, yMin + boost) ?? target;
+        slewTarget = this.solve(Math.min(u, uNow), Math.min(yMin, sim.geom.tipHeight) + boost) ?? slewTarget;
+      }
       const hh = hookHold();
       if (hh !== undefined) this.hoistTo(hh, i);
       const slewed = this.slewTo(x, i);
-      const reached = this.drive(target, i, slewed ? 0.7 : 0.5);
+      const reached = this.drive(slewed ? target : slewTarget, i, slewed ? 0.7 : 0.5);
       if (slewed && reached) return;
       if (sim.outcome !== 'running') return;
       yield i;
     }
+    if (Math.abs(sim.geom.tip.x - x) > 0.5) yield* this.giveUp(`kon de giekpunt niet boven x = ${x.toFixed(1)} krijgen (begrenzer: ${JSON.stringify(sim.lastControl.blocked)})`);
   }
 }
 

@@ -48,6 +48,31 @@ export const SELF_ERECT_STAGES = [
   { from: 0.75, to: 1, label: 'Giek uitklappen' },
 ] as const;
 
+/** Montage van een (bovendraaiende) torenkraan, stap voor stap. */
+export const TOWER_STAGES = [
+  { from: 0, to: 0.1, label: 'Fundering en onderstel plaatsen' },
+  { from: 0.1, to: 0.5, label: 'Mastsecties stapelen' },
+  { from: 0.5, to: 0.6, label: 'Draaikrans en cabine monteren' },
+  { from: 0.6, to: 0.72, label: 'Tegengiek monteren' },
+  { from: 0.72, to: 0.9, label: 'Giek monteren' },
+  { from: 0.9, to: 1, label: 'Ballast plaatsen en testen' },
+] as const;
+
+export const TOWER_MAST_SECTIONS = 8;
+
+/** Heeft deze kraan een opbouwprocedure die je met B uitvoert? */
+export const hasSetupProcedure = (spec: ResolvedCrane): boolean =>
+  spec.gb.setupType === 'selfErect' || spec.gb.setupType === 'boomAssembly' || spec.gb.setupType === 'towerAssembly';
+
+/** Leesbare naam van de huidige opbouwstap. */
+export function setupStageLabel(spec: ResolvedCrane, p: number): string {
+  const list: readonly { to: number; label: string }[] | null = spec.gb.setupType === 'towerAssembly' ? TOWER_STAGES : spec.gb.setupType === 'selfErect' ? SELF_ERECT_STAGES : null;
+  if (!list) return `Giekmontage ${Math.round(p * 100)} %`;
+  let i = list.findIndex((x) => p < x.to);
+  if (i < 0) i = list.length - 1;
+  return `Stap ${i + 1}/${list.length}: ${list[i].label}`;
+}
+
 export function selfErectStage(p: number): number {
   if (p >= 1) return SELF_ERECT_STAGES.length;
   for (let i = 0; i < SELF_ERECT_STAGES.length; i++) if (p < SELF_ERECT_STAGES[i].to) return i;
@@ -130,24 +155,37 @@ export function computeGeometry(spec: ResolvedCrane, s: CraneState): CraneGeomet
       const H = gb.towerHeight ?? 30;
       const J = gb.jibLength ?? 30;
       const CJ = gb.counterJibLength ?? 8;
+      let mastH = H;
+      let jibLen = J;
+      let cjLen = CJ;
       if (gb.setupType === 'selfErect' && s.setupProgress < 1) {
         const p = s.setupProgress;
         mastAngle = lerp(0, Math.PI / 2, clamp((p - 0.4) / 0.35, 0, 1));
         jibUnfold = clamp((p - 0.75) / 0.25, 0, 1);
       }
+      if (gb.setupType === 'towerAssembly' && s.setupProgress < 1) {
+        // mast groeit per sectie; daarna tegengiek en giek, ten slotte ballast
+        const p = s.setupProgress;
+        const built = Math.max(1, Math.floor(clamp((p - 0.1) / 0.4, 0, 1) * TOWER_MAST_SECTIONS + 1e-9));
+        mastH = (H * Math.min(built, TOWER_MAST_SECTIONS)) / TOWER_MAST_SECTIONS;
+        cjLen = CJ * clamp((p - 0.6) / 0.12, 0, 1);
+        jibLen = J * clamp((p - 0.72) / 0.18, 0, 1);
+        // de giek wordt horizontaal gemonteerd (niet opgevouwen zoals bij zelfopbouw)
+        jibUnfold = 1;
+      }
       const baseH = spec.cfg.visual.carrierHeight;
       // mast ligt opgevouwen naar achteren (−u) en komt omhoog
-      const topU = -Math.cos(mastAngle) * H;
-      const topY = baseH + Math.sin(mastAngle) * H;
+      const topU = -Math.cos(mastAngle) * mastH;
+      const topY = baseH + Math.sin(mastAngle) * mastH;
       segments.push({ kind: 'mast', u0: 0, y0: baseH, u1: topU, y1: topY, width: 1.6 });
       // giek: opgevouwen langs de mast naar beneden, uitklappen naar horizontaal
       const folded = mastAngle + Math.PI;
       const jibDir = folded + jibUnfold * (Math.PI * 2 - folded);
       const jdx = Math.cos(jibDir);
       const jdy = Math.sin(jibDir);
-      segments.push({ kind: 'jib', u0: topU, y0: topY, u1: topU + jdx * J, y1: topY + jdy * J, width: 1.3 });
-      if (CJ > 0) segments.push({ kind: 'counterJib', u0: topU, y0: topY, u1: topU - jdx * CJ, y1: topY - jdy * CJ, width: 1.1 });
-      const tr = s.trolley;
+      segments.push({ kind: 'jib', u0: topU, y0: topY, u1: topU + jdx * jibLen, y1: topY + jdy * jibLen, width: 1.3 });
+      if (cjLen > 0) segments.push({ kind: 'counterJib', u0: topU, y0: topY, u1: topU - jdx * cjLen, y1: topY - jdy * cjLen, width: 1.1 });
+      const tr = Math.min(s.trolley, Math.max(gb.trolleyMin ?? 0, jibLen));
       tipU = topU + jdx * tr;
       tipY = topY + jdy * tr - 0.9;
       boomMassT = 0;
