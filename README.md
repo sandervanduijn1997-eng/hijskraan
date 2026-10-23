@@ -70,4 +70,4 @@ Documentatie: [Architectuur](docs/ARCHITECTURE.md) · [Fysica](docs/PHYSICS.md) 
 
 ## Status en bekende beperkingen
 
-Zie de sectie *Status* in [docs/ROADMAP.md](docs/ROADMAP.md) voor een eerlijk overzicht van wat werkt, wat getest is en wat nog ontbreekt.
+Zie [docs/ROADMAP.md](docs/ROADMAP.md) voor het eerlijke oordeel en de bekende beperkingen, en [docs/roadmap.html](docs/roadmap.html) voor de kritische review met werkpakketten om uit te kiezen.

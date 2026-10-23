@@ -67,4 +67,4 @@ De e2e-tests draaien met `?renderer=canvas`: headless Chromium heeft alleen soft
 
 ## Handmatig gecontroleerd
 
-Visuele controle in de browser van hoofdmenu, missies 1, 11, 12, 17, 23, 37 (alle kraanvormen), planning met lastdiagram (missie 18), HUD en waarschuwingen. Niet alle 40 missies zijn door een mens uitgespeeld; hun haalbaarheid is automatisch gevalideerd (zie ROADMAP, *Status*).
+Visuele controle in de browser van hoofdmenu, missies 1, 11, 12, 17, 23, 37 (alle kraanvormen), planning met lastdiagram (missie 18), HUD en waarschuwingen. Niet alle 40 missies zijn door een mens uitgespeeld; hun haalbaarheid is automatisch gevalideerd (zie ROADMAP, *Bekende beperkingen*).
