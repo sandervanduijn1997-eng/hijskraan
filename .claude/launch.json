@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "crane-dev",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-mac-Library-Application-Support-Claude-scratch-workspaces-94620af0-1ff6-4889-a2c6-628e6dacf98d-75d1efd7-92e7-4558-a932-a90d372f99e1-scratch-2026-10-23-ceb381/fe12e472-f611-49d7-bfc7-7ff4d5d700f8/scratchpad/tools/node-v24.22.1-darwin-x64/bin/node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5173"],
+      "port": 5173
+    }
+  ]
+}

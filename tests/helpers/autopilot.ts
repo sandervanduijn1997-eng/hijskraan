@@ -41,7 +41,7 @@ export function run(sim: Simulation, seconds: number, f: (t: number) => CraneInp
 }
 
 /** Volledige eenvoudige hijs: aanslaan, hijsen, verplaatsen, uitslingeren, neerzetten. */
-export function performLift(sim: Simulation, loadId: string, zoneX: number, zoneY: number, clearY: number): void {
+export function performLift(sim: Simulation, loadId: string, zoneX: number, _zoneY: number, clearY: number): void {
   const load = sim.loads.find((l) => l.id === loadId)!;
   const sp = sim.slingPoint(load);
   run(sim, 60, () => {
