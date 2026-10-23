@@ -31,9 +31,18 @@ export class Effects3D {
 
   constructor(size = 160) {
     const geo = new THREE.IcosahedronGeometry(1, 0);
+    // rook en stof: zachte, naar de camera gedraaide wolkjes in plaats van veelvlakken
+    const puff = new THREE.PlaneGeometry(2, 2);
+    const soft = softPuffTexture();
     for (const k of KINDS) {
-      const material = k === 'spark' ? mat(COLORS[k], { emissive: 0xffa040 }) : mat(COLORS[k], { transparent: k === 'smoke' ? 0.55 : 0.8 });
-      const mesh = new THREE.InstancedMesh(geo, material, size);
+      const billboard = k === 'smoke' || k === 'dust';
+      const material = k === 'spark'
+        ? mat(COLORS[k], { emissive: 0xffa040 })
+        : billboard
+          ? new THREE.MeshStandardMaterial({ color: COLORS[k], map: soft, alphaMap: soft, transparent: true, opacity: k === 'smoke' ? 0.32 : 0.45, depthWrite: false, roughness: 1, metalness: 0 })
+          : mat(COLORS[k], { transparent: 0.8 });
+      const mesh = new THREE.InstancedMesh(billboard ? puff : geo, material, size);
+      mesh.userData.billboard = billboard;
       mesh.frustumCulled = false;
       mesh.count = size;
       const ps: P[] = Array.from({ length: size }, () => ({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0, max: 1, size: 0 }));
@@ -68,8 +77,9 @@ export class Effects3D {
     for (let i = 0; i < n; i++) this.spawn('debris', x, y, z, (Math.random() - 0.5) * 4, 1 + Math.random() * 3, (Math.random() - 0.5) * 4, 0.8 + Math.random() * 0.5, 0.1);
   }
 
-  update(dt: number, wind: number): void {
+  update(dt: number, wind: number, camera?: THREE.Camera): void {
     for (const [k, { mesh, ps }] of this.pools) {
+      const q = mesh.userData.billboard && camera ? camera.quaternion : this.q;
       for (let i = 0; i < ps.length; i++) {
         const p = ps[i];
         if (!p.alive) continue;
@@ -95,9 +105,30 @@ export class Effects3D {
         const f = k === 'spark' || k === 'debris' ? 1 : Math.min(1, (p.life / p.max) * 1.5);
         this.s.setScalar(p.size * f);
         this.v.set(p.x, p.y, p.z);
-        mesh.setMatrixAt(i, this.m.compose(this.v, this.q, this.s));
+        mesh.setMatrixAt(i, this.m.compose(this.v, q, this.s));
       }
       mesh.instanceMatrix.needsUpdate = true;
     }
   }
+}
+
+/** Zachte, rafelige wolkvorm (radiaal verloop met ruis) voor rook en stof. */
+function softPuffTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  const grd = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.5, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 60; i++) {
+    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.25})`;
+    g.beginPath();
+    g.arc(Math.random() * 128, Math.random() * 128, 4 + Math.random() * 14, 0, Math.PI * 2);
+    g.fill();
+  }
+  return new THREE.CanvasTexture(c);
 }

@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { rimGeometry, tireGeometry, tubeTrussGeometry } from './parts';
+import { paint, rubber } from './realism';
 
 /**
  * Bouwstenen voor de low-poly 3D-wereld: gedeelde materialen (flat shading), balken tussen twee punten
@@ -14,7 +16,6 @@ export function mat(color: number, opts: { rough?: number; metal?: number; emiss
       color,
       roughness: opts.rough ?? 0.85,
       metalness: opts.metal ?? 0.05,
-      flatShading: true,
       emissive: opts.emissive ?? 0,
       emissiveIntensity: opts.emissive ? 1 : 0,
       transparent: (opts.transparent ?? 1) < 1,
@@ -26,8 +27,8 @@ export function mat(color: number, opts: { rough?: number; metal?: number; emiss
 }
 
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
-const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
-const unitCyl6 = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
+const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 24);
+const unitCyl6 = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
 
 /** Doos met midden op (x, y, z) en afmetingen (w, h, d). */
 export function box(w: number, h: number, d: number, color: number | THREE.Material, x = 0, y = 0, z = 0, shadow = true): THREE.Mesh {
@@ -92,55 +93,25 @@ export function beamMesh(color: number | THREE.Material): THREE.Mesh {
 }
 
 /**
- * Vakwerk (lattice) van lengte 1 langs x met vierkante doorsnede 1×1: vier koorden en diagonalen.
- * Schaal met scale.set(len, w, w): de diagonalen schalen mee. `bays` is het aantal vakken.
+ * Vakwerk (lattice) van lengte 1 langs x met doorsnede 1×1: ronde koorden, diagonalen en dwarsregels,
+ * samengevoegd tot één mesh. Schaal met scale.set(len, w, w). `bays` is het aantal vakken.
  */
-export function trussUnit(color: number, bays: number, chord = 0.08, lace = 0.04): THREE.Group {
+export function trussUnit(color: number, bays: number, chord = 0.08, lace = 0.04, triangle = false): THREE.Group {
   const g = new THREE.Group();
-  const m = mat(color, { metal: 0.3, rough: 0.6 });
-  const corners: [number, number][] = [
-    [-0.5, -0.5],
-    [0.5, -0.5],
-    [0.5, 0.5],
-    [-0.5, 0.5],
-  ];
-  for (const [cy, cz] of corners) {
-    const c = new THREE.Mesh(unitBox, m);
-    c.scale.set(1, chord, chord);
-    c.position.set(0, cy * (1 - chord), cz * (1 - chord));
-    c.castShadow = true;
-    g.add(c);
-  }
-  // diagonalen op de vier zijden
-  const faces: [[number, number], [number, number]][] = [
-    [corners[0], corners[1]],
-    [corners[1], corners[2]],
-    [corners[2], corners[3]],
-    [corners[3], corners[0]],
-  ];
-  for (let f = 0; f < 4; f++) {
-    const [p, q] = faces[f];
-    for (let i = 0; i < bays; i++) {
-      const x0 = -0.5 + i / bays;
-      const x1 = -0.5 + (i + 1) / bays;
-      const flip = (i + f) % 2 === 0;
-      const a = flip ? p : q;
-      const b = flip ? q : p;
-      const d = new THREE.Mesh(unitBox, m);
-      placeBetween(d, { x: x0, y: a[0] * 0.92, z: a[1] * 0.92 }, { x: x1, y: b[0] * 0.92, z: b[1] * 0.92 }, lace, lace);
-      g.add(d);
-    }
-  }
+  const m = new THREE.Mesh(tubeTrussGeometry(bays, chord, lace, triangle), paint(color, { worn: false }));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
   return g;
 }
 
-/** Low-poly wiel (achthoekige band met velg) met as langs z. */
-export function wheel(radius: number, width: number, tire = 0x16181b, rim = 0x8d949b): THREE.Group {
+/** Wiel: band met profiel en stalen velg met bouten; as langs z. */
+export function wheel(radius: number, width: number, _tire = 0x16181b, rimColor = 0xc9ccce): THREE.Group {
   const g = new THREE.Group();
-  const t = cylinder(radius, width, tire);
-  t.rotation.x = Math.PI / 2;
-  const r = cylinder(radius * 0.55, width * 1.04, rim, 6);
-  r.rotation.x = Math.PI / 2;
+  const t = new THREE.Mesh(tireGeometry(radius, width), rubber());
+  const r = new THREE.Mesh(rimGeometry(radius, width), paint(rimColor, { gloss: 0.3, worn: false }));
+  t.castShadow = r.castShadow = true;
+  t.receiveShadow = r.receiveShadow = true;
   g.add(t, r);
   return g;
 }
@@ -148,7 +119,8 @@ export function wheel(radius: number, width: number, tire = 0x16181b, rim = 0x8d
 export function disposeGroup(obj: THREE.Object3D): void {
   obj.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.geometry && m.geometry !== unitBox && m.geometry !== unitCyl && m.geometry !== unitCyl6) m.geometry.dispose();
+    // gedeelde (gecachete) geometrie niet weggooien; alleen eigen geometrie van deze sessie
+    if (m.geometry && !m.geometry.userData.shared && m.geometry !== unitBox && m.geometry !== unitCyl && m.geometry !== unitCyl6) m.geometry.dispose();
   });
 }
 

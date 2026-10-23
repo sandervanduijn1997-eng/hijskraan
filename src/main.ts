@@ -1,6 +1,6 @@
 import './ui/styles.css';
 import { Host3D, webglAvailable } from './game3d/host';
-import { browserStorage } from './save/saveSystem';
+import { browserStorage, loadGame } from './save/saveSystem';
 import { App } from './ui/app';
 
 /**
@@ -11,9 +11,10 @@ const container = document.getElementById('game')!;
 if (!webglAvailable()) {
   container.innerHTML = '<div style="padding:2em;color:#fff;font-family:sans-serif">Deze game vereist WebGL. Schakel hardwareversnelling in of gebruik een recente browser.</div>';
 } else {
-  const host = new Host3D(container);
-  const app = new App(host, browserStorage());
-  (window as unknown as { __crane: unknown }).__crane = { ...app.debugApi(), renderer: 'webgl3d', quality: host.quality };
+  const storage = browserStorage();
+  const host = new Host3D(container, loadGame(storage).data.settings.graphics);
+  const app = new App(host, storage);
+  (window as unknown as { __crane: unknown }).__crane = { ...app.debugApi(), renderer: 'webgl3d', quality: () => host.quality, fps: () => Math.round(host.fps), res: () => host.res, host };
   app.startDemo();
   app.showMainMenu();
 }

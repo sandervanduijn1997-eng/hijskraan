@@ -20,6 +20,7 @@ import { CraneModel, LIVERIES } from './craneModel';
 import { Effects3D } from './effects3d';
 import { buildHook, buildLoad } from './loadModel';
 import { WorldModel, ZoneMarker } from './worldModel';
+import { loadSky, realismEnabled, skyFor } from './realism';
 
 export type SessionMode = 'career' | 'practice' | 'challenge' | 'demo';
 
@@ -79,8 +80,13 @@ export class World3D {
   private dustTimer = 0;
   private time = 0;
   private dome: THREE.Mesh;
+  private hemi: THREE.HemisphereLight;
+  /** Richting naar de zon (uit de HDRI zodra die geladen is). */
+  private sunDir = new THREE.Vector3(0.45, 0.75, 0.5).normalize();
+  private disposed = false;
 
-  constructor(readonly cfg: SessionConfig, readonly hooks: SceneHooks, dom: HTMLElement, labelRoot: HTMLElement) {
+  constructor(readonly cfg: SessionConfig, readonly hooks: SceneHooks, renderer: THREE.WebGLRenderer, labelRoot: HTMLElement) {
+    const dom = renderer.domElement;
     const m = cfg.sim.mission;
     this.sim = new Simulation(cfg.sim);
     const pal = ENVIRONMENTS[m.environment];
@@ -94,6 +100,7 @@ export class World3D {
     this.scene.add(this.dome);
     this.scene.fog = new THREE.Fog(bottom.getHex(), pal.indoor ? 60 : 180, pal.indoor ? 220 : m.weather === 'fog' ? 260 : 900);
     const hemi = new THREE.HemisphereLight(top.getHex(), pal.indoor ? 0x30343a : 0x6b5a48, pal.indoor ? 0.9 : 1.1 * sky.light);
+    this.hemi = hemi;
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(sky.sun, pal.indoor ? 0.6 : 2.4 * sky.light);
     this.sun.castShadow = true;
@@ -102,6 +109,29 @@ export class World3D {
     this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
     this.scene.add(new THREE.AmbientLight(0xffffff, night ? 0.25 : 0.15));
+
+    // fotorealistische lucht: HDRI als achtergrond én als omgevingslicht; de zon staat waar hij in de foto staat
+    if (realismEnabled()) {
+      const setup = skyFor(m.timeOfDay, m.weather);
+      loadSky(renderer, setup.file).then((ls) => {
+        if (this.disposed) return;
+        this.scene.environment = ls.environment;
+        this.scene.environmentIntensity = setup.environment * (pal.indoor ? 0.45 : 1);
+        if (!pal.indoor) {
+          this.scene.background = ls.background;
+          this.scene.backgroundIntensity = setup.background;
+          this.dome.visible = false;
+          // luchtperspectief: lichte nevel in de tint van de horizon, pas op grote afstand
+          const fog = new THREE.Color().setRGB(ls.horizon.r * 0.7, ls.horizon.g * 0.72, ls.horizon.b * 0.78, THREE.LinearSRGBColorSpace);
+          this.scene.fog = m.weather === 'fog' ? new THREE.Fog(fog.getHex(), 40, 320) : new THREE.Fog(fog.getHex(), 300, 2600);
+          this.sunDir.copy(ls.sunDir);
+        }
+        this.hemi.intensity = pal.indoor ? 0.5 : 0.12;
+        this.sun.intensity = pal.indoor ? 0.5 : setup.sun;
+        this.sun.color.setHex(setup.sunColor);
+        renderer.toneMappingExposure = setup.exposure;
+      }).catch(() => { /* zonder HDRI blijft de eenvoudige lucht staan */ });
+    }
 
     this.world = new WorldModel(m, pal, sky);
     this.scene.add(this.world.root);
@@ -195,7 +225,16 @@ export class World3D {
     this.hook = this.buildHookMeshes();
   }
 
+  /** Resolutie van de zonneschaduw (kwaliteitsinstelling). */
+  setShadowMapSize(n: number): void {
+    if (this.sun.shadow.mapSize.x === n) return;
+    this.sun.shadow.mapSize.set(n, n);
+    this.sun.shadow.map?.dispose();
+    this.sun.shadow.map = null;
+  }
+
   dispose(): void {
+    this.disposed = true;
     this.rig.dispose();
     for (const l of this.labels) l.remove();
     disposeGroup(this.scene);
@@ -310,7 +349,7 @@ export class World3D {
         this.fx.dust(sim.crane.baseX - Math.sign(sim.crane.vel.drive) * cfg.visual.carrierLength * 0.4, 0, sim.crane.baseZ + 1.2, 2);
       }
     }
-    this.fx.update(this.paused ? 0 : dt, sim.wind.x);
+    this.fx.update(this.paused ? 0 : dt, sim.wind.x, this.rig.camera);
 
     // lasten
     const lerpBody = (id: string, b: { pos: { x: number; y: number; z: number }; angle: number }) => {
@@ -429,7 +468,7 @@ export class World3D {
     // schaduwcamera volgt het brandpunt
     const ft = this.rig.focusTarget;
     const r = Math.min(220, Math.max(30, this.rig.distance * 0.8));
-    this.sun.position.set(ft.x + r * 0.6, ft.y + r * 1.2, ft.z + r * 0.8);
+    this.sun.position.set(ft.x + this.sunDir.x * r * 1.6, ft.y + this.sunDir.y * r * 1.6, ft.z + this.sunDir.z * r * 1.6);
     this.sun.target.position.copy(ft);
     const sc = this.sun.shadow.camera;
     sc.left = -r;

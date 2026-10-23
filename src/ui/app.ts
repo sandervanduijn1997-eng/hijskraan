@@ -25,7 +25,8 @@ import { clamp } from '../utils/math';
 import type { EdgeAction } from '../game/input/inputManager';
 import { InputManager, keyLabel } from '../game/input/inputManager';
 import { LIVERIES } from '../game3d/craneModel';
-import type { Host3D } from '../game3d/host';
+import type { GraphicsQuality, Host3D } from '../game3d/host';
+import { QUALITY } from '../game3d/host';
 import { ENVIRONMENTS } from '../game/render/palette';
 import type { SessionConfig, SceneHooks, World3D } from '../game3d/world3d';
 import { h, kbd, stars } from './dom';
@@ -857,11 +858,17 @@ export class App {
       s.difficulty = diff.value as DifficultyId;
       this.persist();
     });
+    const gfx = h('select', { id: 'set-graphics' }, ...(Object.keys(QUALITY) as GraphicsQuality[]).map((q) => h('option', { value: q, selected: s.graphics === q }, QUALITY[q].label)));
+    gfx.addEventListener('change', () => {
+      s.graphics = gfx.value as GraphicsQuality;
+      this.host.setQuality(s.graphics);
+      this.persist();
+    });
     const content = h(
       'div',
       { class: 'settings' },
       h('section', { class: 'panel' }, h('h3', null, 'Audio'), slider('Mastervolume', s.masterVolume, (v) => (s.masterVolume = v)), slider('Muziek', s.musicVolume, (v) => (s.musicVolume = v)), slider('Geluidseffecten', s.sfxVolume, (v) => (s.sfxVolume = v)), !audio.available ? h('p', { class: 'muted' }, 'Audio start na de eerste klik of toetsaanslag.') : null),
-      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
+      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
       h('section', { class: 'panel' }, h('h3', null, 'Besturing'), h('p', { class: 'muted', style: 'font-size:.85em' }, 'Klik op een toets om die te wijzigen. Esc annuleert.'), binds, h('button', { class: 'btn small', style: 'margin-top:.6em', onclick: () => { s.bindings = structuredClone(DEFAULT_BINDINGS); this.input.setBindings(s.bindings); this.persist(); this.showSettings(inGame); } }, 'Standaardbesturing herstellen')),
     );
     if (inGame) {

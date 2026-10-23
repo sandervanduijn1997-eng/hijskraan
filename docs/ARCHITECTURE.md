@@ -49,11 +49,13 @@
 
 ## Assets
 
-Er worden **geen externe of commerciële assets** gebruikt:
+Geen commerciële assets. Voor fotorealisme worden **CC0-texturen en HDRI-luchten van Poly Haven** gebruikt (zie `public/assets/LICENSE-ASSETS.md`); al het andere wordt procedureel gemaakt:
 
 | Asset | Hoe gemaakt |
 |---|---|
-| Kranen (10 typen) | Procedurele low-poly 3D-modellen in `game3d/craneModel.ts` (vakwerk, telescoopsecties, wielen, rupsen, stempels, cilinders, zwaailicht) |
+| Kranen (10 typen) | Procedurele 3D-modellen in `game3d/craneModel.ts` en `game3d/parts.ts`: geprofileerd plaatwerk, banden met profiel en velgen, ovale telescoopdelen met kragen, buisvakwerk (één mesh per vakwerk), rupsschakels, belettering, waarschuwingsstrepen |
+| Materialen en licht | `game3d/realism.ts`: gescande PBR-texturen in wereldmaat (box mapping), kraanlak met laklaag en vuil, staal, rubber, glas, gevels met spiegelende ramen; HDRI-lucht als achtergrond en omgevingslicht, zon op de positie uit de HDRI |
+| Nabewerking | `game3d/host.ts`: ambient occlusion (GTAO), ACES-tonemapping, dynamische resolutie voor 60 fps, kwaliteitsniveaus laag/middel/hoog/ultra |
 | Lasten (20+ stijlen) | `game3d/loadModel.ts` |
 | Obstakels/gebouwen | `game3d/worldModel.ts` → `buildObstacle` per stijl, met dezelfde diepte als de fysica |
 | Omgevingen (10) | `game3d/worldModel.ts`: seeded procedurele stad, gebouwen in aanbouw, bewegende bouwkranen, bomen, windturbines, hallen, water, luchtkoepel |

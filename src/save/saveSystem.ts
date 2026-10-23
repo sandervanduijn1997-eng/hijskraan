@@ -53,6 +53,8 @@ export interface Settings {
   cameraShake: boolean;
   showHints: boolean;
   particles: boolean;
+  /** Grafische kwaliteit (laag, middel, hoog, ultra). */
+  graphics: 'low' | 'medium' | 'high' | 'ultra';
   bindings: Record<ActionId, string[]>;
 }
 
@@ -88,6 +90,7 @@ export const defaultSettings = (): Settings => ({
   cameraShake: true,
   showHints: true,
   particles: true,
+  graphics: 'high',
   bindings: structuredClone(DEFAULT_BINDINGS),
 });
 
@@ -168,6 +171,7 @@ export function sanitizeSave(raw: unknown): { data: SaveData; repaired: boolean 
     cameraShake: bool(s.cameraShake, true),
     showHints: bool(s.showHints, true),
     particles: bool(s.particles, true),
+    graphics: (['low', 'medium', 'high', 'ultra'] as const).includes(s.graphics as 'low') ? (s.graphics as Settings['graphics']) : 'high',
     bindings: structuredClone(DEFAULT_BINDINGS),
   };
   if (isObj(s.bindings)) {

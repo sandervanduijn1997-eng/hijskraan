@@ -4,7 +4,9 @@ import { obstacleZ } from '../missions/runtime/buildWorld';
 import { hashString, makeRng } from '../utils/math';
 import { box, boxMinMax, cylinder, mat, placeBetween, shadeHex, trussUnit } from './kit';
 import type { EnvPalette, SkyPalette } from '../game/render/palette';
-import { GROUND_COLORS } from '../game/render/palette';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { FacadeKind } from './realism';
+import { GROUND_SURFACE, GROUND_TYPE_SURFACE, facade, glass, paint, rubber, steel, surface } from './realism';
 
 /** Waterpartijen per missie (alleen visueel; de bodem is vlak). */
 export const WATER: Record<string, [number, number][]> = {
@@ -35,53 +37,54 @@ export class WorldModel {
   private buildGround(m: MissionDef, pal: EnvPalette, rng: () => number): void {
     const x0 = m.bounds.minX - 40;
     const x1 = m.bounds.maxX + 40;
-    const fallback = GROUND_COLORS[m.groundFallback ?? (pal.indoor ? 'floor' : 'asphalt')] ?? pal.ground;
-    const zones = m.ground ?? [];
-    const colorAt = (x: number) => {
-      for (const z of zones) if (x >= z.x0 && x < z.x1) return GROUND_COLORS[z.type] ?? fallback;
-      return fallback;
-    };
-    // speelveld: tegels van 2 m in x (ondergrondzones zichtbaar), 40 m diep
-    const step = 2;
-    for (let x = x0; x < x1; x += step) {
-      const c = shadeHex(colorAt(x + step / 2), 0.96 + rng() * 0.08);
-      const t = box(step + 0.01, 0.2, 40, c, x + step / 2, -0.1, 0, false);
-      t.castShadow = false;
-      this.root.add(t);
+    const base = GROUND_TYPE_SURFACE[m.groundFallback ?? ''] ?? [GROUND_SURFACE[m.environment], 0xffffff];
+    // bouwterrein: één vlak met gescande ondergrond in wereldmaat
+    const site = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, 60).rotateX(-Math.PI / 2), surface(base[0], base[1]));
+    site.position.set((x0 + x1) / 2, 0, -5);
+    site.receiveShadow = true;
+    this.root.add(site);
+    // ondergrondzones (modder, rijplaten, grind) als eigen vlakken erbovenop
+    for (const z of m.ground ?? []) {
+      const [kind, tint] = GROUND_TYPE_SURFACE[z.type] ?? ['gravel', 0xffffff];
+      const zx0 = Math.max(x0, z.x0);
+      const zx1 = Math.min(x1, z.x1);
+      if (zx1 <= zx0) continue;
+      const g = new THREE.Mesh(new THREE.PlaneGeometry(zx1 - zx0, 44).rotateX(-Math.PI / 2), surface(kind, tint));
+      g.position.set((zx0 + zx1) / 2, 0.006, -2);
+      g.receiveShadow = true;
+      this.root.add(g);
     }
     // water
     for (const [w0, w1] of WATER[m.id] ?? []) {
       const geo = new THREE.PlaneGeometry(w1 - w0, 120, Math.ceil((w1 - w0) / 3), 30);
       geo.rotateX(-Math.PI / 2);
-      const wm = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2f6a8a, roughness: 0.25, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.92 }));
+      const wm = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: 0x1d3b4a, roughness: 0.06, metalness: 0, clearcoat: 1, transparent: true, opacity: 0.94 }));
       wm.position.set((w0 + w1) / 2, 0.03, -30);
       wm.receiveShadow = true;
       this.root.add(wm);
       this.water.push(wm);
     }
-    // omgeving rond het speelveld: laag-poly terrein met lichte hoogteverschillen
-    const outer = new THREE.PlaneGeometry(900, 700, 70, 55);
+    // omgeving rond het speelveld: terrein met lichte hoogteverschillen (gras/grond)
+    const outer = new THREE.PlaneGeometry(900, 700, 90, 70);
     outer.rotateX(-Math.PI / 2);
     const pos = outer.getAttribute('position') as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i) + (x0 + x1) / 2;
       const z = pos.getZ(i) - 120;
-      const inPlay = x > x0 - 5 && x < x1 + 5 && z > -25 && z < 25;
+      const inPlay = x > x0 - 5 && x < x1 + 5 && z > -38 && z < 28;
       const far = Math.min(1, Math.max(0, (Math.abs(z + 20) - 40) / 200));
-      pos.setY(i, inPlay ? -0.3 : -0.3 + (rng() * 1.2 + far * 18 * (0.5 + 0.5 * Math.sin(x * 0.02 + z * 0.015))) * (pal.indoor ? 0 : 1));
+      pos.setY(i, inPlay ? -0.05 : -0.05 + (rng() * 0.6 + far * 18 * (0.5 + 0.5 * Math.sin(x * 0.02 + z * 0.015))) * (pal.indoor ? 0 : 1));
     }
     outer.computeVertexNormals();
-    const om = new THREE.Mesh(outer, mat(pal.indoor ? 0x4a4f55 : shadeHex(pal.groundTop, 0.85)));
+    const om = new THREE.Mesh(outer, pal.indoor ? surface('concrete', 0x9a9ea2) : surface(m.environment === 'roughTerrain' ? 'mud' : 'grass', 0xd8dccb));
     om.position.set((x0 + x1) / 2, 0, -120);
     om.receiveShadow = true;
     this.root.add(om);
   }
 
-  private buildScenery(m: MissionDef, pal: EnvPalette, sky: SkyPalette, rng: () => number): void {
+  private buildScenery(m: MissionDef, pal: EnvPalette, _sky: SkyPalette, rng: () => number): void {
     const cx = (m.bounds.minX + m.bounds.maxX) / 2;
-    const light = sky.light;
     const night = m.timeOfDay === 'night' || m.timeOfDay === 'dusk';
-    const windows = mat(0xffd27a, { emissive: night ? 0xffb347 : 0 });
     // stadsrand / industrie op afstand (achter het speelveld, negatieve z)
     for (let i = 0; i < 70; i++) {
       const x = cx - 380 + rng() * 760;
@@ -90,10 +93,14 @@ export class WorldModel {
       const dep = 10 + rng() * 20;
       const hgt = pal.label === 'Windpark' ? 0 : 8 + rng() * (pal.label === 'Binnenstad' || pal.label === 'Hoogbouwproject' ? 90 : 45);
       if (hgt > 0) {
-        const col = shadeHex(rng() < 0.5 ? pal.mid : pal.far, (0.85 + rng() * 0.25) * light);
-        const b = box(wid, hgt, dep, col, x, hgt / 2, z);
+        // echte gevels: kantoor (glas), beton, baksteen of industrie, met spiegelende ramen
+        const kinds: FacadeKind[] = pal.label === 'Haven' || pal.label === 'Industrieterrein' ? ['industrial', 'concrete', 'industrial'] : hgt > 40 ? ['office', 'office', 'concrete'] : ['concrete', 'brick', 'office'];
+        const kind = kinds[Math.floor(rng() * kinds.length)];
+        const b = box(wid, hgt, dep, facade(kind, night, i), x, hgt / 2, z);
         this.root.add(b);
-        if (night && rng() < 0.6) this.root.add(box(wid * 0.7, hgt * 0.6, 0.1, windows, x, hgt * 0.55, z + dep / 2 + 0.06, false));
+        // dakrand en installaties
+        this.root.add(box(wid + 0.4, 0.6, dep + 0.4, surface('concrete', 0xb8b4ac), x, hgt + 0.3, z));
+        if (rng() < 0.5) this.root.add(box(wid * 0.3, 2.2, dep * 0.3, steel(0x9aa0a6, 0.5), x + wid * 0.15, hgt + 1.7, z - dep * 0.1));
         if (rng() < 0.2) {
           const ch = cylinder(1.2, 30, shadeHex(pal.mid, 0.8));
           ch.position.set(x, hgt + 15, z);
@@ -127,24 +134,55 @@ export class WorldModel {
       const speed = 0.03 + rng() * 0.06;
       this.animated.push({ update: (t) => (top.rotation.y = Math.sin(t * speed + phase) * 1.4) });
     }
-    // bomen (low-poly kegels) die in de wind bewegen
-    const treeMat = mat(shadeHex(0x3f6b3a, light));
-    const trunkMat = mat(0x5a4632);
+    // bomen: stam met takken en een kruin uit onregelmatige bladclusters, samengevoegd tot één mesh
+    const leafParts: THREE.BufferGeometry[] = [];
+    const barkParts: THREE.BufferGeometry[] = [];
+    const leafCol = new THREE.Color();
     for (let i = 0; i < 90; i++) {
       const x = cx - 300 + rng() * 600;
       const z = rng() < 0.5 ? -30 - rng() * 60 : 28 + rng() * 40;
-      const h = 5 + rng() * 7;
-      const tree = new THREE.Group();
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, h * 0.35, 5), trunkMat);
-      trunk.position.y = h * 0.175;
-      const crown = new THREE.Mesh(new THREE.ConeGeometry(h * 0.28, h * 0.75, 6), treeMat);
-      crown.position.y = h * 0.35 + h * 0.37;
-      crown.castShadow = true;
-      tree.add(trunk, crown);
-      tree.position.set(x, 0, z);
-      this.root.add(tree);
-      const ph = rng() * 6;
-      this.animated.push({ update: (t, wind) => (tree.rotation.z = Math.sin(t * 1.3 + ph) * 0.02 * (1 + Math.abs(wind) * 0.3) + wind * 0.004) });
+      const h = 6 + rng() * 8;
+      const trunk = new THREE.CylinderGeometry(0.12 + h * 0.012, 0.2 + h * 0.02, h * 0.55, 7);
+      trunk.translate(x, h * 0.275, z);
+      barkParts.push(trunk.toNonIndexed());
+      const conifer = rng() < 0.35;
+      const clumps = conifer ? 4 : 6 + Math.floor(rng() * 4);
+      const base = conifer ? 0x2f4a2a : rng() < 0.5 ? 0x4a6b33 : 0x3e5f2e;
+      for (let k = 0; k < clumps; k++) {
+        const t = k / clumps;
+        const rr = conifer ? h * (0.32 - t * 0.22) : h * (0.16 + rng() * 0.12);
+        const g = conifer ? new THREE.ConeGeometry(rr, h * 0.32, 9) : new THREE.IcosahedronGeometry(rr, 1);
+        const pos = g.getAttribute('position') as THREE.BufferAttribute;
+        for (let v = 0; v < pos.count; v++) {
+          const j = 1 + (rng() - 0.5) * 0.28;
+          pos.setXYZ(v, pos.getX(v) * j, pos.getY(v) * (conifer ? 1 : 0.85 * j), pos.getZ(v) * j);
+        }
+        const ox = conifer ? 0 : (rng() - 0.5) * h * 0.3;
+        const oz = conifer ? 0 : (rng() - 0.5) * h * 0.3;
+        const oy = conifer ? h * (0.35 + t * 0.5) : h * (0.55 + rng() * 0.3);
+        g.translate(x + ox, oy, z + oz);
+        const ng = g.toNonIndexed();
+        leafCol.setHex(base).offsetHSL((rng() - 0.5) * 0.03, 0, (rng() - 0.5) * 0.08);
+        const cols = new Float32Array(ng.getAttribute('position').count * 3);
+        for (let v = 0; v < cols.length; v += 3) {
+          const shade = 0.82 + rng() * 0.3;
+          cols[v] = leafCol.r * shade;
+          cols[v + 1] = leafCol.g * shade;
+          cols[v + 2] = leafCol.b * shade;
+        }
+        ng.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+        ng.deleteAttribute('uv');
+        leafParts.push(ng);
+      }
+    }
+    if (leafParts.length) {
+      const leaves = new THREE.Mesh(mergeGeometries(leafParts)!, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true }));
+      leaves.castShadow = true;
+      leaves.receiveShadow = true;
+      const bark = new THREE.Mesh(mergeGeometries(barkParts)!, new THREE.MeshStandardMaterial({ color: 0x4a3b2c, roughness: 1 }));
+      bark.castShadow = true;
+      this.root.add(leaves, bark);
+      this.animated.push({ update: (t, wind) => (leaves.position.x = Math.sin(t * 1.1) * 0.03 * (1 + Math.abs(wind) * 0.3)) });
     }
     // windturbines op de horizon (windpark)
     if (pal.label === 'Windpark') {
@@ -221,13 +259,15 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
   const add = (...m: THREE.Object3D[]) => g.add(...m);
   const style = o.style ?? o.kind;
   const rng = makeRng(hashString(o.id));
-  const glassMat = mat(0x5f7f9a, { rough: 0.15, metal: 0.5, emissive: night ? 0x3a3020 : 0 });
+  const glassMat = glass(night);
+  const concrete = surface('concrete', 0xd6d3cc);
+  const block = surface('blockwall', 0xd8d4cc);
   switch (style) {
     case 'truckBed':
-      add(boxMinMax(X0, X1, Y0 + 0.5, Y1 - 0.15, z0, z1, 0x5b6168), boxMinMax(X0, X1, Y1 - 0.15, Y1, z0, z1, 0x7d6a55));
+      add(boxMinMax(X0, X1, Y0 + 0.5, Y1 - 0.15, z0, z1, paint(0x3d4249)), boxMinMax(X0, X1, Y1 - 0.15, Y1, z0, z1, surface('steelplate', 0x8a7f72, { metal: 0.5 })));
       for (let x = X0 + 1; x < X1 - 0.5; x += Math.max(2.5, (X1 - X0) / 4)) {
         for (const z of [z0 + 0.2, z1 - 0.2]) {
-          const w = cylinder(0.5, 0.4, 0x15171a);
+          const w = cylinder(0.5, 0.4, rubber());
           w.rotation.x = Math.PI / 2;
           w.position.set(x, 0.5, z);
           add(w);
@@ -236,29 +276,29 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
       break;
     case 'truckCab':
     case 'truckCabL':
-      add(boxMinMax(X0, X1, 0.5, Y1, z0, z1, 0xdfe4e8), boxMinMax(style === 'truckCab' ? X1 - 0.05 : X0 - 0.01, style === 'truckCab' ? X1 + 0.01 : X0 + 0.05, Y1 - 1.3, Y1 - 0.25, z0 + 0.2, z1 - 0.2, glassMat));
+      add(boxMinMax(X0, X1, 0.5, Y1, z0, z1, paint(0xdfe4e8)), boxMinMax(style === 'truckCab' ? X1 - 0.05 : X0 - 0.01, style === 'truckCab' ? X1 + 0.01 : X0 + 0.05, Y1 - 1.3, Y1 - 0.25, z0 + 0.2, z1 - 0.2, glassMat));
       break;
     case 'brick':
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, 0x9a4b35));
-      for (let y = Y0 + 0.5; y < Y1; y += 0.5) add(boxMinMax(X0 - 0.01, X1 + 0.01, y, y + 0.03, z0 - 0.01, z1 + 0.01, 0x7a3a28));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, surface('blockwall', 0xc98a72)));
       break;
     case 'glass': {
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, 0x5f7f9a));
-      for (let y = Y0 + 3.5; y < Y1; y += 3.5) add(boxMinMax(X0 - 0.05, X1 + 0.05, y - 0.15, y, z0 - 0.05, z1 + 0.05, 0xb8c4cc));
-      for (let x = X0 + 1.5; x < X1; x += 1.5) add(boxMinMax(x - 0.06, x + 0.06, Y0, Y1, z1, z1 + 0.04, 0xb8c4cc));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, glassMat));
+      const frame = steel(0xa7adb3, 0.4);
+      for (let y = Y0 + 3.5; y < Y1; y += 3.5) add(boxMinMax(X0 - 0.05, X1 + 0.05, y - 0.15, y, z0 - 0.05, z1 + 0.05, frame));
+      for (let x = X0 + 1.5; x < X1; x += 1.5) add(boxMinMax(x - 0.06, x + 0.06, Y0, Y1, z1, z1 + 0.04, frame));
       if (night) for (let y = Y0 + 1; y < Y1 - 1; y += 3.5) if (rng() < 0.6) add(boxMinMax(X0 + 0.5, X1 - 0.5, y, y + 1.6, z1 + 0.01, z1 + 0.03, mat(0xffd27a, { emissive: 0xffb347 })));
       break;
     }
     case 'skeleton': {
       const floors = Math.max(1, Math.round((Y1 - Y0) / 3.5));
       const fh = (Y1 - Y0) / floors;
-      for (let f = 1; f <= floors; f++) add(boxMinMax(X0, X1, Y0 + f * fh - 0.3, Y0 + f * fh, z0, z1, 0xa9a59c));
-      for (let x = X0; x <= X1 - 0.4; x += Math.max(3, (X1 - X0) / 5)) for (let z = z0; z <= z1 - 0.4; z += Math.max(3, D / 3)) add(boxMinMax(x, x + 0.4, Y0, Y1 - 0.3, z, z + 0.4, 0x9a968d));
+      for (let f = 1; f <= floors; f++) add(boxMinMax(X0, X1, Y0 + f * fh - 0.3, Y0 + f * fh, z0, z1, concrete));
+      for (let x = X0; x <= X1 - 0.4; x += Math.max(3, (X1 - X0) / 5)) for (let z = z0; z <= z1 - 0.4; z += Math.max(3, D / 3)) add(boxMinMax(x, x + 0.4, Y0, Y1 - 0.3, z, z + 0.4, concrete));
       break;
     }
     case 'scaffold': {
       add(boxMinMax(X0, X1, Y1 - 0.15, Y1, z0, z1, 0x8a6a3a));
-      const tube = 0xb8bec4;
+      const tube = steel(0xc4c9ce, 0.45);
       for (let x = X0; x <= X1 + 0.01; x += (X1 - X0) / Math.max(1, Math.round((X1 - X0) / 1.6))) for (const z of [z0, z1]) add(boxMinMax(x - 0.04, x + 0.04, Y0, Y1, z - 0.04, z + 0.04, tube));
       for (let y = Y0 + 1; y < Y1; y += 1.5) for (const z of [z0, z1]) add(boxMinMax(X0, X1, y - 0.03, y + 0.03, z - 0.03, z + 0.03, tube));
       break;
@@ -268,13 +308,13 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
       break;
     }
     case 'foundation':
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, 0xa5a29b), boxMinMax(X0 + 0.1, X1 - 0.1, Y1, Y1 + 0.01, z0 + 0.1, z1 - 0.1, 0xb8b5ae));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, concrete));
       break;
     case 'steel':
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, 0x5d6d7e));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, surface('steelplate', 0x7d8a96, { metal: 0.7 })));
       break;
     case 'rack':
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, 0x3f5a73));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, paint(0x3f5a73)));
       for (let y = Y0 + 1; y < Y1; y += 1.2) add(boxMinMax(X0 - 0.02, X1 + 0.02, y, y + 0.12, z0 - 0.02, z1 + 0.02, 0xf2b705));
       break;
     case 'conveyor':
@@ -287,7 +327,7 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
       }
       break;
     case 'tank': {
-      const t = new THREE.Mesh(new THREE.CylinderGeometry(Math.min(o.w, D) / 2, Math.min(o.w, D) / 2, o.h, 12), mat(0xc8ccd0));
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(Math.min(o.w, D) / 2, Math.min(o.w, D) / 2, o.h, 32), steel(0xc8ccd0, 0.45));
       t.position.set((X0 + X1) / 2, Y0 + o.h / 2, zc);
       t.castShadow = true;
       t.receiveShadow = true;
@@ -321,8 +361,7 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
       for (let i = 0; i < n; i++) {
         const c = colors[Math.floor(rng() * colors.length)];
         const yy = Y0 + i * 2.59;
-        add(boxMinMax(X0, X1, yy, yy + 2.59, z0, z1, c));
-        for (let x = X0 + 0.3; x < X1; x += 0.3) add(boxMinMax(x - 0.02, x + 0.02, yy + 0.1, yy + 2.49, z1, z1 + 0.03, shadeHex(c, 0.7)));
+        add(boxMinMax(X0, X1, yy, yy + 2.59, z0, z1, surface('corrugated', shadeHex(c, 1.25))));
       }
       break;
     }
@@ -355,7 +394,7 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
       break;
     }
     case 'module':
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, 0x8e9aa6));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, surface('steelplate', 0xb0bac4, { metal: 0.6 })));
       for (let y = Y0 + 4; y < Y1; y += 4) add(boxMinMax(X0 - 0.03, X1 + 0.03, y, y + 0.3, z0 - 0.03, z1 + 0.03, 0xf2b705));
       break;
     case 'flare': {
@@ -379,11 +418,11 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
       break;
     }
     case 'roof':
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, 0x5d646b));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, surface('corrugated', 0x9aa1a8)));
       break;
     case 'concrete':
     default:
-      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, o.kind === 'support' ? 0x9a968d : 0x8c8f92));
+      add(boxMinMax(X0, X1, Y0, Y1, z0, z1, o.kind === 'support' ? concrete : block));
       break;
   }
   return g;

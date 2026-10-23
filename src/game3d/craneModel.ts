@@ -6,6 +6,8 @@ import type { CraneGeometry, Segment } from '../cranes/models/kinematics';
 import type { TowerBuild } from '../cranes/models/towerErection';
 import { TOWER_BALLAST_H, TOWER_BALLAST_W, TOWER_COUNTERJIB_H, TOWER_MAST_SECTIONS, TOWER_ROOT_OFFSET, TOWER_SLEW_UNIT_H } from '../cranes/models/towerErection';
 import { beamMesh, box, cylinder, mat, placeBetween, placeCylinderBetween, shadeHex, trussUnit, wheel } from './kit';
+import { boomSectionGeometry, brandOf, decal, mesh, profile, warningStripes } from './parts';
+import { ballast, glass, paint, steel, surface } from './realism';
 
 export interface Livery {
   body: number;
@@ -19,8 +21,6 @@ export const LIVERIES: Record<string, { label: string; make: (base: number, acce
 };
 
 const DARK = 0x2b2f36;
-const STEEL = 0x8d949b;
-const GLASS = 0x6f97b8;
 
 interface Outrigger {
   beam: THREE.Mesh;
@@ -44,7 +44,10 @@ export class CraneModel {
   private trusses = new Map<string, THREE.Group>();
   private beams = new Map<string, THREE.Mesh>();
   private cylinders: THREE.Mesh[] = [];
-  private cwMesh: THREE.Mesh | null = null;
+  private cwSlabs: THREE.Mesh[] = [];
+  /** Kragen met slijtstrips aan het eind van elk telescoopdeel. */
+  private collars: THREE.Mesh[] = [];
+  private boomHead: THREE.Group | null = null;
   private ballast: THREE.Mesh[] = [];
   private mastSections: THREE.Object3D[] = [];
   private trolley: THREE.Mesh | null = null;
@@ -88,7 +91,7 @@ export class CraneModel {
     const h = vis.carrierHeight;
     const body = this.liv.body;
     const c = this.carrier;
-    const glass = mat(GLASS, { rough: 0.2, metal: 0.4, emissive: night ? 0x7a6a3a : 0 });
+    const glassM = glass(night);
     const addWheels = (xs: number[], r: number, track: number) => {
       for (const x of xs) {
         for (const z of [-track, track]) {
@@ -112,37 +115,99 @@ export class CraneModel {
         if (right) xs[xs.length - 1] = L / 2 - 1.6;
         else xs[0] = -L / 2 + 1.6;
         addWheels(xs, r, 1.05);
-        c.add(box(L - 0.4, h * 0.35, 2.2, DARK, 0, r * 0.9 + h * 0.18, 0));
-        c.add(box(L, h * 0.45, 2.6, body, 0, h * 0.775, 0));
-        for (const ox of [-L / 2 + 0.9, L / 2 - 0.9]) c.add(box(0.9, h * 0.4, 2.64, shadeHex(body, 0.8), ox, h * 0.6, 0));
-        const cabH = cfg.carrier === 'allTerrain' ? 1.0 : 1.6;
+        const P = paint(body);
+        const D = paint(DARK, { gloss: 0.2 });
+        // chassisbalken en assen
+        c.add(box(L - 0.8, 0.42, 1.1, D, 0, r * 0.95, 0));
+        for (const x of xs) c.add(mesh(cylGeo(0.09, 2.1), steel(0x55595e, 0.5)).translateX(x).translateY(r).rotateX(Math.PI / 2));
+        // opbouw: plaatwerk met afgeschuinde koppen
+        const y0 = r * 0.95 + 0.2;
+        const y1 = h;
+        c.add(mesh(profile([[-L / 2, y0 + 0.3], [-L / 2 + 0.4, y0], [L / 2 - 0.4, y0], [L / 2, y0 + 0.3], [L / 2, y1 - 0.12], [L / 2 - 0.12, y1], [-L / 2 + 0.12, y1], [-L / 2, y1 - 0.12]], 2.55, 0.05), P));
+        // spatborden boven elke as
+        for (const x of xs) {
+          for (const z of [-1.28, 1.28]) {
+            const arch = mesh(archGeo(r + 0.1), D);
+            arch.position.set(x, r, z);
+            c.add(arch);
+          }
+        }
+        // stempelkasten voor en achter, met waarschuwingsstrepen
+        for (const ox of [-L / 2 + 0.75, L / 2 - 0.75]) {
+          c.add(box(1.0, 0.55, 2.7, D, ox, h * 0.62, 0));
+          for (const z of [-1.36, 1.36]) c.add(box(0.98, 0.3, 0.02, warningStripes(), ox, h * 0.62, z, false));
+        }
+        // treden en zijkisten
+        for (const z of [-1.3, 1.3]) c.add(box(L * 0.5, 0.35, 0.18, D, 0, y0 + 0.05, z));
+        // cabine: geprofileerd met schuine voorruit
+        const cabH = cfg.carrier === 'allTerrain' ? 1.15 : 1.7;
         const cx = right ? L / 2 - cabW / 2 : -L / 2 + cabW / 2;
-        const cabZ0 = cfg.carrier === 'allTerrain' ? -1.3 : -1.3;
-        const cabZ1 = cfg.carrier === 'allTerrain' ? 0.2 : 1.3;
-        const cabColor = cfg.carrier === 'knuckleTruck' ? 0xe9edf0 : body;
-        c.add(box(cabW, h * 0.2 + cabH, cabZ1 - cabZ0, cabColor, cx, h * 0.8 + (h * 0.2 + cabH) / 2, (cabZ0 + cabZ1) / 2));
-        c.add(box(cabW * 0.6, cabH * 0.6, 0.05, glass, cx + (right ? 0.3 : -0.3), h + cabH * 0.55, cabZ1 + 0.02, false));
-        c.add(box(0.05, cabH * 0.6, (cabZ1 - cabZ0) * 0.8, glass, right ? L / 2 + 0.02 : -L / 2 - 0.02, h + cabH * 0.55, (cabZ0 + cabZ1) / 2, false));
+        const cabZ0 = -1.3;
+        const cabZ1 = cfg.carrier === 'allTerrain' ? 0.15 : 1.3;
+        const cabColor = cfg.carrier === 'knuckleTruck' ? paint(0xe9edf0) : P;
+        const dir = right ? 1 : -1;
+        const cy0 = h * 0.8;
+        const cy1 = h + cabH;
+        const f = (x: number) => cx + dir * x;
+        const pts: [number, number][] = [[f(-cabW / 2), cy0], [f(cabW / 2), cy0], [f(cabW / 2), cy0 + (cy1 - cy0) * 0.45], [f(cabW / 2 - 0.45), cy1], [f(-cabW / 2), cy1]];
+        if (dir < 0) pts.reverse();
+        const cab = mesh(profile(pts, cabZ1 - cabZ0, 0.06), cabColor);
+        cab.position.z = (cabZ0 + cabZ1) / 2;
+        c.add(cab);
+        // ruiten: schuine voorruit en zijruiten
+        const g1 = glass(night);
+        const wsTop = cy1 - 0.05;
+        const wsBot = cy0 + (cy1 - cy0) * 0.47;
+        const ws = new THREE.Mesh(new THREE.PlaneGeometry(Math.hypot(0.45, wsTop - wsBot), (cabZ1 - cabZ0) * 0.86), g1);
+        ws.position.set(f(cabW / 2 - 0.2) + dir * 0.03, (wsTop + wsBot) / 2, (cabZ0 + cabZ1) / 2);
+        ws.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        ws.rotateX(-Math.atan2(0.45, wsTop - wsBot));
+        c.add(ws);
+        for (const z of [cabZ0 - 0.011, cabZ1 + 0.011]) {
+          const sw = new THREE.Mesh(new THREE.PlaneGeometry(cabW * 0.55, (cy1 - cy0) * 0.42), g1);
+          sw.position.set(f(0.05), cy1 - (cy1 - cy0) * 0.28, z);
+          if (z < 0) sw.rotation.y = Math.PI;
+          c.add(sw);
+        }
+        // spiegels
+        for (const z of [cabZ0 - 0.25, cabZ1 + 0.25]) c.add(box(0.06, 0.35, 0.22, D, f(cabW / 2 - 0.2), cy1 - 0.45, z));
+        // uitlaat
+        const ex = mesh(cylGeo(0.09, 1.1), steel(0x8a8f94, 0.45));
+        ex.position.set(f(-cabW / 2 - 0.15), h + 0.4, cabZ0 + 0.2);
+        c.add(ex);
         if (cfg.carrier === 'knuckleTruck') {
           const bx0 = right ? -L / 2 : -L / 2 + cabW + 0.3;
           const bx1 = right ? L / 2 - cabW - 0.3 : L / 2;
-          c.add(box(bx1 - bx0, 0.15, 2.5, 0x7d6a55, (bx0 + bx1) / 2, h - 0.075, 0));
+          c.add(box(bx1 - bx0, 0.15, 2.5, surfaceDeck(), (bx0 + bx1) / 2, h - 0.075, 0));
+        }
+        // belettering op de flanken
+        const { brand, model } = brandOf(cfg.name);
+        for (const side of [-1, 1]) {
+          const d = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(5, L * 0.32), Math.min(5, L * 0.32) / 4), decal(brand, '#1d2126', model));
+          d.position.set(right ? -L * 0.12 : L * 0.12, (y0 + y1) / 2, side * 1.29);
+          if (side < 0) d.rotation.y = Math.PI;
+          c.add(d);
         }
         break;
       }
       case 'roughTerrain': {
         addWheels([-L / 2 + 2.3, L / 2 - 2.3], vis.wheelRadius, 1.2);
-        c.add(box(L - 1.2, h - vis.wheelRadius * 0.8, 2.5, body, 0, (h + vis.wheelRadius * 0.8) / 2, 0));
-        for (const ox of [-L / 2 + 0.7, L / 2 - 0.7]) c.add(box(1, h * 0.4, 2.6, shadeHex(body, 0.8), ox, h * 0.7, 0));
+        const yb = vis.wheelRadius * 0.8;
+        c.add(mesh(profile([[-L / 2 + 0.6, yb + 0.3], [-L / 2 + 1.0, yb], [L / 2 - 1.0, yb], [L / 2 - 0.6, yb + 0.3], [L / 2 - 0.6, h - 0.1], [L / 2 - 0.7, h], [-L / 2 + 0.7, h], [-L / 2 + 0.6, h - 0.1]], 2.5, 0.05), paint(body)));
+        for (const ox of [-L / 2 + 0.7, L / 2 - 0.7]) {
+          c.add(box(1, h * 0.4, 2.6, paint(DARK, { gloss: 0.2 }), ox, h * 0.7, 0));
+          for (const z of [-1.31, 1.31]) c.add(box(0.98, h * 0.25, 0.02, warningStripes(), ox, h * 0.7, z, false));
+        }
+        for (const x of [-L / 2 + 2.3, L / 2 - 2.3]) for (const z of [-1.3, 1.3]) c.add(mesh(archGeo(vis.wheelRadius + 0.1), paint(DARK, { gloss: 0.2 })).translateX(x).translateY(vis.wheelRadius).translateZ(z));
         break;
       }
       case 'carryDeck': {
         addWheels([-L / 2 + 1.1, L / 2 - 1.1], vis.wheelRadius, 1.0);
-        c.add(box(L, h - vis.wheelRadius * 0.7, 2.5, body, 0, (h + vis.wheelRadius * 0.7) / 2, 0));
-        c.add(box(L - 2.6, 0.12, 2.4, 0x6b6f74, -1.1, h + 0.06, 0));
+        c.add(box(L, h - vis.wheelRadius * 0.7, 2.5, paint(body), 0, (h + vis.wheelRadius * 0.7) / 2, 0));
+        c.add(box(L - 2.6, 0.12, 2.4, surfaceDeck(), -1.1, h + 0.06, 0));
         const cab = new THREE.Group();
-        cab.add(box(1.7, 1.6, 1.15, shadeHex(body, 0.95), 0, 0.8, 0));
-        cab.add(box(1.3, 0.85, 0.05, glass, 0, 1.0, 0.6, false));
+        cab.add(box(1.7, 1.6, 1.15, paint(shadeHex(body, 0.95)), 0, 0.8, 0));
+        cab.add(box(1.3, 0.85, 0.05, glassM, 0, 1.0, 0.6, false));
         cab.position.set(L / 2 - 1.05, h, 0.68);
         c.add(cab);
         break;
@@ -150,23 +215,47 @@ export class CraneModel {
       case 'crawler': {
         const tb = this.spec.gb.footprintRetracted.b;
         for (const zc of [-tb + 0.5, tb - 0.5]) {
-          c.add(box(L, 1.25, 1.1, 0x2a2d31, 0, 0.625, zc));
+          // rupsband: zijframe, loop- en spanwielen en losse bodemplaten (schakels)
+          c.add(box(L - 1.2, 0.8, 0.5, paint(DARK, { gloss: 0.2 }), 0, 0.62, zc));
           for (let i = 0; i < 6; i++) {
             const rr = i === 0 || i === 5 ? 0.55 : 0.3;
-            const r = cylinder(rr, 1.14, STEEL);
+            const r = cylinder(rr, 1.0, steel(0x4a4e53, 0.6));
             r.rotation.x = Math.PI / 2;
-            r.position.set(-L / 2 + 0.7 + (i * (L - 1.4)) / 5, 0.62, zc);
+            r.position.set(-L / 2 + 0.7 + (i * (L - 1.4)) / 5, i === 0 || i === 5 ? 0.62 : 0.35, zc);
             c.add(r);
           }
+          const shoes = Math.round(L / 0.32);
+          const shoeGeo = new THREE.BoxGeometry(0.28, 0.08, 1.12);
+          const im = new THREE.InstancedMesh(shoeGeo, steel(0x33363a, 0.75), shoes * 2 + 8);
+          const m4 = new THREE.Matrix4();
+          let k = 0;
+          for (let i = 0; i < shoes; i++) {
+            const x = -L / 2 + 0.7 + (i / (shoes - 1)) * (L - 1.4);
+            im.setMatrixAt(k++, m4.makeTranslation(x, 0.04, zc));
+            im.setMatrixAt(k++, m4.makeTranslation(x, 1.21, zc));
+          }
+          for (const ex of [-1, 1]) {
+            for (let i = 1; i <= 4; i++) {
+              const a = (i / 5) * Math.PI - Math.PI / 2;
+              const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), ex * a);
+              m4.compose(new THREE.Vector3(ex * (L / 2 - 0.7) + ex * Math.cos(a) * 0.6, 0.62 + Math.sin(a) * 0.6, zc), q, new THREE.Vector3(1, 1, 1));
+              im.setMatrixAt(k++, m4);
+            }
+          }
+          im.count = k;
+          im.castShadow = true;
+          im.receiveShadow = true;
+          c.add(im);
         }
-        c.add(box(4.8, vis.carrierHeight - 0.9, (tb - 1) * 2, shadeHex(body, 0.8), 0, (vis.carrierHeight + 0.9) / 2, 0));
+        c.add(box(4.8, vis.carrierHeight - 0.9, (tb - 1) * 2, paint(shadeHex(body, 0.8)), 0, (vis.carrierHeight + 0.9) / 2, 0));
         break;
       }
       case 'towerBase': {
-        c.add(box(8, 0.8, 8, 0x8c8f92, 0, 0.2, 0));
-        c.add(box(6, 0.9, 1.2, DARK, 0, 1.05, 0));
-        c.add(box(1.2, 0.9, 6, DARK, 0, 1.05, 0));
-        for (const bx of [-1.9, 1.9]) c.add(box(1, 1.2, 6, 0x9aa0a6, bx, 1.2, 0));
+        // betonfundering met ankers en kruisonderstel
+        c.add(box(8, 0.8, 8, surfaceConcrete(), 0, 0.2, 0));
+        c.add(box(6, 0.9, 1.2, paint(DARK, { gloss: 0.2 }), 0, 1.05, 0));
+        c.add(box(1.2, 0.9, 6, paint(DARK, { gloss: 0.2 }), 0, 1.05, 0));
+        for (const bx of [-1.9, 1.9]) c.add(box(1, 1.2, 6, ballast(), bx, 1.2, 0));
         break;
       }
       case 'selfErecting': {
@@ -184,9 +273,9 @@ export class CraneModel {
     const gb = this.spec.gb;
     const n = cfg.carrier === 'selfErecting' ? 4 : gb.outriggerCount;
     for (let i = 0; i < n; i++) {
-      const beam = beamMesh(cfg.carrier === 'selfErecting' ? DARK : 0x3a3f45);
-      const jack = cylinder(0.12, 1, 0xb8bec4);
-      const pad = box(1, 0.12, 1, 0x2f343a);
+      const beam = beamMesh(warningStripes());
+      const jack = cylinder(0.12, 1, steel(0xd9dde1, 0.18));
+      const pad = cylinder(0.55, 0.14, steel(0x3a3f45, 0.7));
       c.add(beam, jack, pad);
       this.outriggers.push({ beam, jack, pad });
     }
@@ -200,7 +289,7 @@ export class CraneModel {
     const h = cfg.visual.carrierHeight;
     const s = this.slew;
     const body = this.liv.body;
-    const glass = mat(GLASS, { rough: 0.2, metal: 0.4, emissive: night ? 0x7a6a3a : 0 });
+    const glassM = glass(night);
     if (cfg.kind === 'tower') {
       const H = gb.towerHeight ?? 30;
       const color = this.liv.boom;
@@ -232,7 +321,7 @@ export class CraneModel {
         this.trusses.set(kind, t);
       }
       const cab = new THREE.Group();
-      cab.add(box(2, 2.4, 1.8, 0xe9edf0, 0, 0, 0), box(0.05, 1.4, 1.5, glass, 1.02, 0.2, 0, false));
+      cab.add(box(2, 2.4, 1.8, 0xe9edf0, 0, 0, 0), box(0.05, 1.4, 1.5, glassM, 1.02, 0.2, 0, false));
       s.add(cab);
       this.cab = cab;
       this.trolley = box(1.4, 0.6, 1.4, DARK);
@@ -287,15 +376,36 @@ export class CraneModel {
     const cwR = cw?.radius ?? 3;
     const houseLen = Math.max(3, Math.min(8, cwR + 1.2));
     const top = h + (cfg.kind === 'lattice' ? 2.6 : 1.5);
-    s.add(box(houseLen + 1.6, top - h, 2.6, shadeHex(body, 0.95), (1.6 - houseLen) / 2, (h + top) / 2, 0));
-    s.add(box(houseLen - 1.6, 0.5, 2.3, shadeHex(body, 0.8), (-houseLen + 0.4 - 1.2) / 2, top + 0.25, 0));
+    const P = paint(body);
+    const D = paint(DARK, { gloss: 0.2 });
+    // draaikrans
+    s.add(mesh(cylGeo(1.25, 0.32), D).translateY(h + 0.16));
+    // bovenwagen: plaatwerk met afgeschuinde achterkant en motorruimte
+    const xa = -houseLen;
+    const xb = 1.6;
+    s.add(mesh(profile([[xa, h + 0.45], [xa + 0.45, h + 0.3], [xb, h + 0.3], [xb, top - 0.25], [xb - 0.35, top], [xa + 0.3, top], [xa, top - 0.3]], 2.6, 0.06), P));
+    s.add(box(houseLen - 1.6, 0.5, 2.3, paint(shadeHex(body, 0.85)), (-houseLen + 0.4 - 1.2) / 2, top + 0.25, 0));
+    // ventilatierooster van de motor
+    for (let i = 0; i < 6; i++) s.add(box(0.06, (top - h) * 0.45, 0.02, D, xa + 0.8 + i * 0.18, (h + top) / 2, -1.31, false));
+    // cabine met grote ruiten
     const cab = new THREE.Group();
-    cab.add(box(2.4, 2, 0.95, shadeHex(body, 1.05), 0, 0, 0), box(1.1, 0.9, 0.04, glass, 0.5, 0.35, 0.49, false), box(0.04, 0.9, 0.8, glass, 1.22, 0.35, 0, false));
+    cab.add(mesh(profile([[-1.2, -1], [1.0, -1], [1.25, -0.15], [1.05, 1], [-1.2, 1]], 0.95, 0.05), paint(shadeHex(body, 1.05))));
+    cab.add(box(1.6, 1.05, 0.02, glassM, 0.15, 0.3, 0.49, false), box(0.02, 1.0, 0.82, glassM, 1.16, 0.4, 0, false));
+    cab.add(box(0.5, 0.12, 0.12, D, -0.6, 1.05, 0.2));
     cab.position.set(0.8, h + 1.2, 1.83);
     s.add(cab);
     this.cab = cab;
-    this.cwMesh = box(1.6, 1, 2.8, 0x3b3f45);
-    s.add(this.cwMesh);
+    // contragewicht: losse platen die er per stuk bij komen
+    for (let i = 0; i < 6; i++) {
+      const slab = box(1.6, 0.36, 2.8, ballast());
+      s.add(slab);
+      this.cwSlabs.push(slab);
+    }
+    // belettering op de bovenwagen
+    const { brand } = brandOf(cfg.name);
+    const dcl = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), decal(brand));
+    dcl.position.set(xa + 1.6, (h + top) / 2 + 0.1, 1.31);
+    s.add(dcl);
     if (cfg.kind === 'lattice') {
       for (const kind of ['boom', 'jib']) {
         const t = trussUnit(this.liv.boom, 24, 0.07, 0.035);
@@ -312,16 +422,27 @@ export class CraneModel {
         this.pendants.push(l);
       }
     } else {
+      // ovale telescoopdelen; binnendelen iets lichter (minder slijtage)
       for (let i = 0; i < Math.max(1, gb.telescopeSections); i++) {
-        const m = beamMesh(i === 0 ? this.liv.boom : shadeHex(this.liv.boom, 1 + i * 0.03));
+        const m = mesh(boomSectionGeometry(), paint(i === 0 ? this.liv.boom : shadeHex(this.liv.boom, 1 + i * 0.03), { gloss: 0.7 }));
         s.add(m);
         this.sections.push(m);
+        const col = mesh(boomSectionGeometry(), paint(shadeHex(this.liv.boom, 0.82), { gloss: 0.4 }));
+        s.add(col);
+        this.collars.push(col);
       }
-      for (let i = 0; i < 2; i++) {
-        const c = cylinder(1, 1, i === 0 ? DARK : 0xd5dbe0);
-        s.add(c);
-        this.cylinders.push(c);
-      }
+      // giekkop met kabelschijven
+      const head = new THREE.Group();
+      head.add(box(1.4, 0.9, 0.9, P, -0.5, 0, 0));
+      for (const z of [-0.28, 0, 0.28]) head.add(mesh(cylGeo(0.42, 0.12), steel(0x9aa0a6, 0.35)).rotateX(Math.PI / 2).translateY(z));
+      for (const z of [-0.42, 0.42]) head.add(box(1.0, 1.0, 0.06, P, 0, 0, z));
+      s.add(head);
+      this.boomHead = head;
+      // hefcilinder: geverfde cilinderbuis en blanke zuigerstang
+      const c0 = cylinder(1, 1, paint(DARK, { gloss: 0.5, worn: false }));
+      const c1 = cylinder(1, 1, steel(0xe6e9ec, 0.08));
+      s.add(c0, c1);
+      this.cylinders.push(c0, c1);
     }
   }
 
@@ -358,7 +479,11 @@ export class CraneModel {
     }
     this.slew.rotation.y = -s.slew;
     this.sheave.position.set(g.tipU, g.tipY + 0.4, 0);
-    this.sheave.visible = cfg.kind !== 'tower';
+    this.sheave.visible = cfg.kind !== 'tower' && !this.boomHead;
+    if (this.boomHead) {
+      this.boomHead.position.set(g.tipU, g.tipY + 0.1, 0);
+      this.boomHead.rotation.z = g.displayBoomAngle;
+    }
     const blink = Math.sin(time * 0.012) > 0;
     (this.beacon.material as THREE.MeshStandardMaterial).emissiveIntensity = blink ? 1.4 : 0.15;
     this.beaconLight.intensity = blink ? 6 : 0;
@@ -369,12 +494,17 @@ export class CraneModel {
     // contragewicht
     const cw = this.spec.counterweights[s.counterweightIndex];
     const cwT = (cw?.massT ?? 0) + s.extraCounterweightT;
-    if (this.cwMesh) {
-      this.cwMesh.visible = cwT > 0.05;
-      const cwH = Math.min(3.2, 0.5 + Math.sqrt(cwT) * 0.22);
+    if (this.cwSlabs.length) {
+      // aantal platen naar verhouding van het gemonteerde contragewicht (zoals een echte plaatstapel)
+      const maxT = Math.max(1, ...this.spec.counterweights.map((c) => c.massT)) + Math.max(0, s.extraCounterweightT);
+      const n = cwT <= 0.05 ? 0 : Math.max(1, Math.round((cwT / maxT) * this.cwSlabs.length));
       const r = cw?.radius ?? 3;
-      this.cwMesh.scale.set(1.6, cwH, 2.8);
-      this.cwMesh.position.set(-r - 0.1, h + 0.3 + cwH / 2, 0);
+      const slabH = Math.min(0.55, 0.22 + Math.sqrt(maxT) * 0.03);
+      this.cwSlabs.forEach((m, i) => {
+        m.visible = i < n;
+        m.scale.set(1.6, slabH - 0.03, 2.8);
+        m.position.set(-r - 0.1, h + 0.3 + slabH * (i + 0.5), 0);
+      });
     }
     const segs = g.segments;
     if (cfg.kind === 'lattice') {
@@ -401,8 +531,19 @@ export class CraneModel {
       if (!m) break;
       m.visible = true;
       placeBetween(m, { x: seg.u0, y: seg.y0, z: 0 }, { x: seg.u1, y: seg.y1, z: 0 }, seg.width, seg.width * 0.85);
+      // kraag aan het buiteneinde (iets dikker, 35 cm lang)
+      const col = this.collars[k - 1];
+      if (col) {
+        const L = Math.hypot(seg.u1 - seg.u0, seg.y1 - seg.y0) || 1;
+        const t = Math.max(0, 1 - 0.35 / L);
+        col.visible = true;
+        placeBetween(col, { x: seg.u0 + (seg.u1 - seg.u0) * t, y: seg.y0 + (seg.y1 - seg.y0) * t, z: 0 }, { x: seg.u1, y: seg.y1, z: 0 }, seg.width * 1.06, seg.width * 0.85 * 1.06);
+      }
     }
-    for (; k < this.sections.length; k++) this.sections[k].visible = false;
+    for (let j = k; j < this.sections.length; j++) {
+      this.sections[j].visible = false;
+      if (this.collars[j]) this.collars[j].visible = false;
+    }
     // hefcilinder
     const th = g.displayBoomAngle;
     const base = { x: gb.pivotU + 1.6, y: h + 0.2, z: 0 };
@@ -533,3 +674,31 @@ function setLine(l: THREE.Line, a: THREE.Vector3, b: THREE.Vector3): void {
   pos.needsUpdate = true;
   l.geometry.computeBoundingSphere();
 }
+
+const geoCache = new Map<string, THREE.BufferGeometry>();
+function cachedGeo(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  let g = geoCache.get(key);
+  if (!g) {
+    g = make();
+    g.userData.shared = true;
+    geoCache.set(key, g);
+  }
+  return g;
+}
+
+/** Cilinder met as langs y. */
+const cylGeo = (r: number, len: number) => cachedGeo(`cyl|${r}|${len}`, () => new THREE.CylinderGeometry(r, r, len, 16));
+
+/** Spatbord: halve ring boven het wiel, 0,55 m breed. */
+const archGeo = (r: number) =>
+  cachedGeo(`arch|${r}`, () => {
+    const s = new THREE.Shape();
+    s.absarc(0, 0, r + 0.06, 0, Math.PI, false);
+    s.absarc(0, 0, r, Math.PI, 0, true);
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.55, bevelEnabled: false, curveSegments: 18 });
+    g.translate(0, 0, -0.275);
+    return g;
+  });
+
+const surfaceDeck = () => paint(0x6f6a63, { gloss: 0.1 });
+const surfaceConcrete = () => surface('concrete', 0xd0cdc6);
