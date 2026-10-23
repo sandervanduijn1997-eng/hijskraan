@@ -5,7 +5,7 @@
 | Onderdeel | Keuze | Reden |
 |---|---|---|
 | Taal | TypeScript 5.9 (strict) | Typeveiligheid voor data (kranen, missies) en fysica |
-| Engine | Phaser 3.90 (laatste 3.x) | Gevraagd; stabiel en bekend. Phaser 4 is nieuwer maar API-wijzigingen zijn een onnodig risico |
+| Weergave | Three.js 0.170 (WebGL) | Volledig 3D low-poly met flat shading, schaduwen en mist. Vervangt het eerdere 2D-zijaanzicht (Phaser) |
 | Build | Vite 7 | Snel, eenvoudige config; Vite 8 was te recent |
 | Fysica | Eigen XPBD-simulatie | Volledige controle over kabelconstraints, deterministisch, headless testbaar; een generieke physics-engine modelleert een ongelijkheidskabel + stabiliteitsmodel niet beter |
 | UI | DOM-overlay (geen framework) | Scherpe tekst, toegankelijke formulieren, eenvoudig herschalen; de wereld blijft in canvas/WebGL |
@@ -20,9 +20,9 @@
           │ Hud: leest Simulation per frame (alleen tekst die wijzigt)  │
           └──────────────▲────────────────────────────▲───────────────┘
                          │ hooks (onFrame/onEvents)    │ save/economy/career
-          ┌──────────────┴──────── game (Phaser) ──────┴───────────────┐
-          │ WorldScene: vaste tijdstap, invoer → sim.step, rendering    │
-          │ render/*: achtergrond, kraan, wereld, effecten  camera/*    │
+          ┌──────────────┴──────── game3d (Three.js) ──┴───────────────┐
+          │ World3D: vaste tijdstap, invoer → sim.step, scène bijwerken │
+          │ craneModel, worldModel, loadModel, effects3d, cameraRig     │
           └──────────────▲─────────────────────────────────────────────┘
                          │ CraneInput (bron-onafhankelijk)
           ┌──────────────┴──────── sim (pure TS) ──────────────────────┐
@@ -34,14 +34,14 @@
      capaciteit, controller)          stability, wind, ground, world)
 ```
 
-- **`physics/`** en **`sim/`** importeren niets uit Phaser of de DOM. Daardoor draaien alle fysica-, missie- en integratietests headless in Node.
+- **`physics/`** en **`sim/`** importeren niets uit Three.js of de DOM. Daardoor draaien alle fysica-, missie- en integratietests headless in Node.
 - **Data** (kranen, lasten, missies) staat uitsluitend in `cranes/config` en `missions/data`; er staan geen missies verspreid door de code.
 - **Rendering** leest de simulatie maar schrijft er nooit in.
 - **Invoer** loopt via `InputManager` → `CraneInput` (assen −1..1). Een gamepad-bron kan via `addAxisSource()` dezelfde structuur vullen.
 
 ## Tijdstap en interpolatie
 
-`WorldScene.update` verzamelt framedelta (max 0,25 s) en voert vaste stappen van 1/60 s uit (max 6 per frame). Elke stap heeft 8 XPBD-substappen. Valt er meer tijd weg, dan wordt die gecontroleerd gedropt (slow motion, nooit teleport). De renderer interpoleert lasten, haak en giekkop tussen de vorige en huidige stap.
+`World3D.frame` verzamelt framedelta (max 0,25 s) en voert vaste stappen van 1/60 s uit (max 6 per frame). Elke stap heeft 8 XPBD-substappen. Valt er meer tijd weg, dan wordt die gecontroleerd gedropt (slow motion, nooit teleport). De renderer interpoleert lasten, haak en giekkop tussen de vorige en huidige stap.
 
 ## Opslag
 
@@ -53,11 +53,11 @@ Er worden **geen externe of commerciële assets** gebruikt:
 
 | Asset | Hoe gemaakt |
 |---|---|
-| Kranen (10 typen) | Procedurele low-poly geometrie in `render/craneRenderer.ts` (schuine 3D-projectie, facetten, vakwerk, wielen, rupsen, cilinders, zwaailichten) |
-| Lasten (20+ stijlen) | `render/worldRenderer.ts` → `drawLoad` |
-| Obstakels/gebouwen | `drawObstacle` per stijl (baksteen, glas, casco, steiger, tank, schip, jacket, …) |
-| Achtergronden (10 omgevingen) | `render/background.ts`: seeded procedurele skyline, industrie, bouwkranen, bomen, rook, laswerk, wolken, regen |
-| Effecten | Deeltjespool (`render/effects.ts`) |
+| Kranen (10 typen) | Procedurele low-poly 3D-modellen in `game3d/craneModel.ts` (vakwerk, telescoopsecties, wielen, rupsen, stempels, cilinders, zwaailicht) |
+| Lasten (20+ stijlen) | `game3d/loadModel.ts` |
+| Obstakels/gebouwen | `game3d/worldModel.ts` → `buildObstacle` per stijl, met dezelfde diepte als de fysica |
+| Omgevingen (10) | `game3d/worldModel.ts`: seeded procedurele stad, gebouwen in aanbouw, bewegende bouwkranen, bomen, windturbines, hallen, water, luchtkoepel |
+| Effecten | InstancedMesh-deeltjespool (`game3d/effects3d.ts`) |
 | Audio | `audio/audioEngine.ts` (motor, hydrauliek, lier, wind, omgeving, waarschuwingen, UI, ambient-muziek) |
 | Iconen/favicon | Inline SVG |
 

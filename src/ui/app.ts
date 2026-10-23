@@ -1,4 +1,3 @@
-import type Phaser from 'phaser';
 import { audio } from '../audio/audioEngine';
 import { LICENSE_LABELS, isChapterUnlocked, isCompleted, isMissionUnlocked, levelFor, nextMission, totalStars } from '../career/career';
 import { CRANES, CRANE_IDS, getCrane } from '../cranes/config/cranes';
@@ -25,9 +24,10 @@ import { GRAVITY } from '../physics/constants';
 import { clamp } from '../utils/math';
 import type { EdgeAction } from '../game/input/inputManager';
 import { InputManager, keyLabel } from '../game/input/inputManager';
-import { LIVERIES } from '../game/render/craneRenderer';
+import { LIVERIES } from '../game3d/craneModel';
+import type { Host3D } from '../game3d/host';
 import { ENVIRONMENTS } from '../game/render/palette';
-import type { SessionConfig, SceneHooks, WorldScene } from '../game/scenes/WorldScene';
+import type { SessionConfig, SceneHooks, World3D } from '../game3d/world3d';
 import { h, kbd, stars } from './dom';
 import { Hud } from './hud/hud';
 
@@ -36,7 +36,7 @@ const ACTION_LABELS: Record<ActionId, string> = {
   teleOut: 'Telescoop uit', teleIn: 'Telescoop in', trolleyOut: 'Loopkat naar buiten', trolleyIn: 'Loopkat naar binnen', knuckleUp: 'Knikarm omhoog', knuckleDown: 'Knikarm omlaag',
   knuckleTeleOut: 'Knikarm-telescoop uit', knuckleTeleIn: 'Knikarm-telescoop in', driveLeft: 'Rijden links', driveRight: 'Rijden rechts', precision: 'Precisiebediening',
   rigging: 'Aanslaan / afkoppelen', outriggerMode: 'Stempelmodus', outriggerAuto: 'Automatische stempelprocedure', setup: 'Opbouwprocedure (vasthouden)', pause: 'Pauze',
-  menu: 'Menu', zoomIn: 'Inzoomen', zoomOut: 'Uitzoomen', overview: 'Overzichtsmodus', cameraReset: 'Camera herstellen', horn: 'Claxon', help: 'Bedieningsoverzicht',
+  menu: 'Menu', zoomIn: 'Inzoomen', zoomOut: 'Uitzoomen', overview: 'Overzichtsmodus', cameraReset: 'Camera herstellen', cameraMode: 'Camera: volgen / cabine', horn: 'Claxon', help: 'Bedieningsoverzicht',
 };
 
 interface PlanChoice {
@@ -54,13 +54,13 @@ export class App {
   private screen: HTMLElement | null = null;
   private overlay: HTMLElement | null = null;
   private hud: Hud | null = null;
-  private scene: WorldScene | null = null;
+  private scene: World3D | null = null;
   private session: SessionConfig | null = null;
   private plan: PlanChoice | null = null;
   private resultShown = false;
   private notice: HTMLElement | null = null;
 
-  constructor(private game: Phaser.Game, private storage: StorageLike, loadStatus?: (s: string) => void) {
+  constructor(private host: Host3D, private storage: StorageLike, loadStatus?: (s: string) => void) {
     const res = loadGame(storage);
     this.save = res.data;
     loadStatus?.(res.status);
@@ -119,9 +119,7 @@ export class App {
     this.input.outriggerMode = false;
     this.input.outriggerTarget = -1;
     this.input.consumeEdges();
-    const mgr = this.game.scene;
-    if (mgr.isActive('world') || mgr.isPaused('world')) mgr.stop('world');
-    mgr.start('world', { cfg, hooks: this.hooks() });
+    this.scene = this.host.start(cfg, this.hooks());
   }
 
   startDemo(): void {
@@ -162,7 +160,7 @@ export class App {
     this.startPlay({ ...this.session });
   }
 
-  private onFrame(sim: Simulation, scene: WorldScene): void {
+  private onFrame(sim: Simulation, scene: World3D): void {
     this.scene = scene;
     if (this.session?.mode === 'demo') return;
     if (!this.hud || this.hud.sim !== sim) {
@@ -864,7 +862,8 @@ export class App {
       sec('Torenkraan', [[['slewLeft', 'slewRight'], 'Giek draaien'], [['trolleyOut', 'trolleyIn'], 'Loopkat naar buiten / binnen'], [['hoistDown', 'hoistUp'], 'Vieren / hijsen'], [['setup'], 'Opbouwprocedure (zelfopbouw)']]),
       sec('Knikarmkraan', [[['boomUp', 'boomDown'], 'Hoofdarm'], [['knuckleUp', 'knuckleDown'], 'Knikarm'], [['knuckleTeleOut', 'knuckleTeleIn'], 'Telescoopsegmenten'], [['hoistDown', 'hoistUp'], 'Lier'], [['slewLeft', 'slewRight'], 'Kolom draaien']]),
       sec('Stempels', [[['outriggerMode'], 'Stempelmodus aan/uit'], [['boomUp', 'boomDown'], 'Geselecteerde stempel uit / in'], [['hoistUp', 'hoistDown'], 'Vijzel neer / op'], [['outriggerAuto'], 'Automatische procedure']]),
-      sec('Algemeen', [[['rigging'], 'Last aanslaan / afkoppelen'], [['pause'], 'Pauze'], [['menu'], 'Menu'], [['zoomIn', 'zoomOut'], 'Zoomen (ook muiswiel)'], [['overview'], 'Overzichtsmodus'], [['cameraReset'], 'Camera herstellen'], [['horn'], 'Claxon']]),
+      sec('Algemeen & camera', [[['rigging'], 'Last aanslaan / afkoppelen'], [['pause'], 'Pauze'], [['menu'], 'Menu'], [['zoomIn', 'zoomOut'], 'Zoomen (ook muiswiel)'], [['overview'], 'Overzichtsmodus'], [['cameraMode'], 'Volgcamera / cabinezicht'], [['cameraReset'], 'Camera herstellen (ook dubbelklik)'], [['horn'], 'Claxon']]),
+      h('section', { class: 'panel' }, h('h3', null, 'Muis'), h('div', { class: 'bind' }, h('span', null, 'Camera draaien'), h('span', null, 'linkermuisknop slepen')), h('div', { class: 'bind' }, h('span', null, 'Camera verschuiven'), h('span', null, 'rechtermuisknop slepen')), h('div', { class: 'bind' }, h('span', null, 'Zoomen'), h('span', null, 'muiswiel'))),
       h('section', { class: 'panel' }, h('h3', null, 'Werkwijze'), h('ol', { style: 'margin:0;padding-left:1.2em;line-height:1.5' },
         h('li', null, 'Zet de stempels volledig uit (O, daarna P voor automatisch).'),
         h('li', null, 'Breng de haak boven de last; laat zakken tot de prompt verschijnt en druk T.'),

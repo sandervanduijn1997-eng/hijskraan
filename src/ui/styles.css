@@ -21,7 +21,9 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); }
 body { background: var(--sky); }
 #game { position: fixed; inset: 0; }
-#game canvas { display: block; }
+#game canvas { display: block; touch-action: none; }
+#game .labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.zone-label { position: absolute; left: 0; top: 0; padding: 0.25em 0.6em; border-radius: 3px; background: rgba(20, 22, 26, 0.75); color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap; }
 #ui { position: fixed; inset: 0; pointer-events: none; font-size: calc(16px * var(--ui-scale)); }
 #ui > * { pointer-events: auto; }
 button { font-family: inherit; }

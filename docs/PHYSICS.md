@@ -50,7 +50,7 @@ Dit is bepalend voor het slingergedrag: de slingerhoek bij optrekken is ongeveer
 
 ## Botsingen
 
-- Obstakels: AABB's in xy met een z-bereik. Lasten: georiënteerde dozen.
+- Obstakels: AABB's in xy met een echt z-bereik (diepte per soort, zie `DEPTH_BY_KIND` in `missions/runtime/buildWorld.ts`; bv. gebouw 16 m, muur 6 m, kolom 1,2 m). Lasten: georiënteerde dozen.
 - Contacten: hoekpunten van de last in een obstakel én hoekpunten van het obstakel in de last (zodat een balk op twee smalle steunpunten kan rusten). De entry-rand wordt bepaald uit de vorige positie, waardoor een last niet door dunne platen schiet.
 - Zijwaarts (in z) een obstakel in zwenken wordt in z teruggeduwd.
 - Wrijving: XPBD statisch/dynamisch (μs 0,65, μk 0,45).

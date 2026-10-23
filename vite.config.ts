@@ -6,6 +6,6 @@ export default defineConfig({
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 2000,
-    rollupOptions: { output: { manualChunks: { phaser: ['phaser'] } } },
+    rollupOptions: { output: { manualChunks: { three: ['three'] } } },
   },
 });

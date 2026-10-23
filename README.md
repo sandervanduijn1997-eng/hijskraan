@@ -1,6 +1,6 @@
 # CRANE OPERATOR: HEAVY LIFT
 
-Een 2D/2.5D low-poly hijskraansimulator in de browser. Tien kraanklassen, veertig carrièremissies, een eigen deterministische XPBD-fysica voor kabel en last, een stabiliteitsmodel met lastdiagrammen, carrière, economie, upgrades, uitdagingen, vrije oefening, procedurele audio en lokale opslag.
+Een 3D low-poly hijskraansimulator in de browser (Three.js). Tien kraanklassen, veertig carrièremissies, een eigen deterministische XPBD-fysica voor kabel en last, een stabiliteitsmodel met lastdiagrammen, carrière, economie, upgrades, uitdagingen, vrije oefening, procedurele audio en lokale opslag.
 
 > Alle machinenamen zijn fictief. De referentiemodellen (Liebherr, Grove, Tadano, XCMG, Potain, Manitowoc, Palfinger) worden alleen als visuele en functionele referentie gebruikt. Technische waarden in de game zijn **spelwaarden** (`gameBalance`), geen fabrikantgegevens.
 
@@ -40,11 +40,15 @@ Zie [docs/TEST_PLAN.md](docs/TEST_PLAN.md) voor wat er wordt getest.
 | I / K | — | — | knikarm op / neer |
 | ← / → | rijden | — | rijden |
 
-Algemeen: **Shift** precisie · **T** aanslaan/afkoppelen · **O** stempelmodus (W/S schuiven, E/Q vijzels, 1–4 kiezen, 0 = alle) · **P** automatische stempelprocedure · **B** (vasthouden) opbouwprocedure · **Spatie** pauze · **Esc** menu · **+/−/muiswiel** zoom · **Tab** overzicht · **C** camera herstellen · **H** claxon · **F1** bedieningsoverzicht.
+Algemeen: **V** camera volgen/cabine · **Shift** precisie · **T** aanslaan/afkoppelen · **O** stempelmodus (W/S schuiven, E/Q vijzels, 1–4 kiezen, 0 = alle) · **P** automatische stempelprocedure · **B** (vasthouden) opbouwprocedure · **Spatie** pauze · **Esc** menu · **+/−/muiswiel** zoom · **Tab** overzicht · **C** camera herstellen · **H** claxon · **F1** bedieningsoverzicht.
 
-## Renderer
+## Weergave
 
-De game gebruikt WebGL waar mogelijk. Als WebGL niet start of zonder hardwareversnelling traag is (< 20 fps), schakelt de game eenmalig automatisch over op de Canvas-renderer. Forceren kan met `?renderer=canvas` of `?renderer=webgl`.
+Volledig 3D low-poly met Three.js (WebGL): belichting, schaduwen, mist en een vrij draaibare camera.
+
+- **Camera**: linkermuisknop slepen = draaien, rechtermuisknop slepen = verschuiven, muiswiel = zoomen, dubbelklik of **C** = herstellen, **Tab** = overzicht, **V** = volgcamera/cabinezicht.
+- `?quality=low`: geen schaduwen, lagere resolutie (voor zwakke GPU's).
+- `?render=off`: alleen voor tests — simulatie en UI lopen, er wordt niet getekend.
 
 ## Projectstructuur
 
@@ -54,7 +58,8 @@ src/
   cranes/       configuraties (10 kranen, upgrades), kinematica, capaciteit/lastdiagram, besturing
   missions/     missiedata (40 + uitdagingen + oefening), runtime (wereldopbouw, score), validatie
   sim/          Simulation: koppelt kraan, fysica, missieregels, waarschuwingen en meetwaarden
-  game/         Phaser-scene, camera, invoer, rendering (achtergrond, kraan, wereld, effecten)
+  game3d/       Three.js: host/renderer, 3D-sessie, kraanmodellen, wereld, lasten, camera, effecten
+  game/         invoer en kleurpaletten
   ui/           DOM-HUD, menu's, planning, resultaten, vloot, instellingen
   career/ economy/ save/ audio/ utils/
 tests/          unit, integratie (headless autopilot), e2e (Playwright)

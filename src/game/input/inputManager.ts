@@ -4,9 +4,9 @@ import { emptyInput } from '../../cranes/controllers/craneInput';
 import type { ActionId } from '../../save/saveSystem';
 
 /** Eenmalige acties (flank) die de scene afhandelt. */
-export type EdgeAction = 'rigging' | 'outriggerMode' | 'outriggerAuto' | 'pause' | 'menu' | 'overview' | 'cameraReset' | 'horn' | 'zoomIn' | 'zoomOut' | 'help';
+export type EdgeAction = 'rigging' | 'outriggerMode' | 'outriggerAuto' | 'pause' | 'menu' | 'overview' | 'cameraReset' | 'cameraMode' | 'horn' | 'zoomIn' | 'zoomOut' | 'help';
 
-const EDGE: EdgeAction[] = ['rigging', 'outriggerMode', 'outriggerAuto', 'pause', 'menu', 'overview', 'cameraReset', 'horn', 'zoomIn', 'zoomOut', 'help'];
+const EDGE: EdgeAction[] = ['rigging', 'outriggerMode', 'outriggerAuto', 'pause', 'menu', 'overview', 'cameraReset', 'cameraMode', 'horn', 'zoomIn', 'zoomOut', 'help'];
 
 /**
  * Bron-onafhankelijke invoerlaag. Toetsenbord is nu de bron; een gamepad-bron kan later

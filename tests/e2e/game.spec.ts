@@ -48,8 +48,21 @@ test.beforeEach(async ({ page }) => {
   page.on('console', (m) => {
     if (m.type() === 'error' && !/WebGL|Framebuffer|GPU/i.test(m.text())) errors.push(m.text());
   });
-  await page.goto('/?renderer=canvas');
+  await page.goto('/?render=off');
   await page.getByTestId('main-menu').waitFor();
+});
+
+test('3D-weergave: rendert een niet-lege scène zonder fouten', async ({ page }) => {
+  await page.goto('/?quality=low');
+  await page.getByTestId('main-menu').waitFor();
+  await page.evaluate(() => (window as unknown as { __crane: { startMission(id: string, d: string): void } }).__crane.startMission('m12', 'normal'));
+  await page.waitForTimeout(4000);
+  const shot = await page.locator('#game canvas').screenshot();
+  // een gerenderde 3D-scène heeft veel verschillende kleuren; een leeg/zwart canvas niet
+  const distinct = new Set<number>();
+  for (let i = 0; i < shot.length; i += 97) distinct.add(shot[i]);
+  expect(distinct.size).toBeGreaterThan(40);
+  expect(errors).toEqual([]);
 });
 
 test('start: hoofdmenu, canvas en geen consolefouten', async ({ page }) => {
