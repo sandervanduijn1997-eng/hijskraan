@@ -22,3 +22,19 @@ describe('missieverloop (headless)', () => {
     expect(sim.tasks[1].status).toBe('done');
   });
 });
+
+describe('speelbaarheid missie 2', () => {
+  it('haak hangt bij de start boven de container', () => {
+    const sim = new Simulation({ mission: getMission('m02')! });
+    const sp = sim.slingPoint(sim.loads[0]);
+    expect(Math.abs(sim.geom.tip.x - sp.x)).toBeLessThan(0.15);
+  });
+
+  it('op Normaal uitvoerbaar zonder botsing, met minstens 2 sterren', () => {
+    const sim = new Simulation({ mission: getMission('m02')!, difficulty: DIFFICULTIES.normal });
+    performLift(sim, 'c1', 14, 0, 1.0 + 1.0);
+    expect(sim.outcome, sim.failReason).toBe('success');
+    expect(sim.metrics.collisions).toBe(0);
+    expect(sim.score!.stars).toBeGreaterThanOrEqual(2);
+  });
+});

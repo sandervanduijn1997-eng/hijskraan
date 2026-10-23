@@ -19,8 +19,10 @@ function attachAt(sim: Simulation, loadId: string): void {
 }
 
 describe('mislukkingen en veiligheidsgrenzen', () => {
-  it('mislukte hijs door een botsing met een verboden obstakel (m02 keerwand)', () => {
-    const sim = new Simulation({ mission: getMission('m02')!, difficulty: DIFFICULTIES.normal });
+  it('mislukte hijs door een botsing met een verboden obstakel (keerwand met onHit: fail)', () => {
+    const base = getMission('m02')!;
+    const m: MissionDef = { ...base, obstacles: base.obstacles.map((o) => ({ ...o, h: 2, onHit: 'fail' as const })) };
+    const sim = new Simulation({ mission: m, difficulty: DIFFICULTIES.normal });
     attachAt(sim, 'c1');
     run(sim, 10, () => { const i = emptyInput(); hoistTo(sim, i, 3.5); return i; });
     // giek met kracht naar buiten: de container zwaait tegen de keerwand
