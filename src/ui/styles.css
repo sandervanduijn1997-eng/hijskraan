@@ -108,7 +108,7 @@ table.chart td.bad { color: #ff8f84; }
 .check.warn { background: rgba(242, 183, 5, 0.14); color: var(--yellow); }
 
 /* ------------------------------------------------------------ HUD */
-.hud { position: absolute; inset: 0; pointer-events: none; }
+#ui > .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud > * { pointer-events: auto; }
 .hud .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
 .hud-mission { position: absolute; left: 1em; top: 1em; width: 21em; padding: 0.8em 1em; }
