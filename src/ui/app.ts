@@ -199,7 +199,8 @@ export class App {
     const v = sim.crane.vel;
     const gb = sim.spec.gb;
     const hyd = Math.min(1, Math.abs(v.luff) / Math.max(1e-6, gb.luffSpeedDeg * 0.0175) + Math.abs(v.tele) / Math.max(1e-6, gb.teleSpeed || 1) + Math.abs(v.slew) / Math.max(1e-6, gb.slewSpeedDeg * 0.0175) * 0.5 + Math.abs(v.knuckle) * 3 + Math.abs(v.trolley) * 0.5);
-    audio.update({ engine: sim.crane.engine, hydraulic: hyd, winch: v.hoist / Math.max(0.1, gb.hoistSpeed), wind: sim.wind.speed, drive: Math.abs(v.drive) / Math.max(0.1, gb.driveSpeed) });
+    const sp = { x: sim.geom.slewX, y: sim.spec.cfg.visual.carrierHeight + 1.5, z: sim.geom.slewZ };
+    audio.update({ engine: sim.crane.engine, hydraulic: hyd, winch: v.hoist / Math.max(0.1, gb.hoistSpeed), wind: sim.wind.speed, drive: Math.abs(v.drive) / Math.max(0.1, gb.driveSpeed), loadPct: sim.attached ? sim.loadPct : 0, reversing: v.drive < -0.05, pos: sp });
   }
 
   private onEvents(sim: Simulation, ev: SimEvent[]): void {
@@ -207,7 +208,7 @@ export class App {
     for (const e of ev) {
       switch (e.type) {
         case 'impact':
-          if (e.speed > 0.1) audio.impact(e.speed, e.mass, e.obstacle);
+          if (e.speed > 0.1) audio.impact(e.speed, e.mass, e.obstacle, { x: e.x, y: e.y, z: sim.hookPoint().z });
           break;
         case 'warning':
           if (e.warning.level !== 'info') audio.warning(e.warning.level);
@@ -217,7 +218,7 @@ export class App {
           break;
         case 'attach':
         case 'detach':
-          audio.clank(0.08, 520);
+          audio.rigging(sim.attachedMassT() > 5, sim.hookPoint());
           break;
         case 'placed':
           audio.ui('confirm');

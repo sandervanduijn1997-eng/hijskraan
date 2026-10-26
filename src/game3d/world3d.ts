@@ -461,6 +461,11 @@ export class World3D {
     this.rig.setCab(cabPos, { x: hp.x + Math.sin(yawOff) * 5, y: hp.y, z: hp.z + Math.cos(yawOff) * 0 });
     this.rig.update(dt, focus, this.overviewPts);
     this.dome.position.copy(this.rig.camera.position);
+    // luisteraar = camera; in de cabine gedempt
+    const camQ = this.rig.camera.quaternion;
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camQ);
+    const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camQ);
+    audio.setListener(this.rig.camera.position, fwd, camUp, this.rig.mode === 'cab');
 
     // schaduwcamera volgt het brandpunt
     const ft = this.rig.focusTarget;
