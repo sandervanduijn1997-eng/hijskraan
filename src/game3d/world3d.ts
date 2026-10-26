@@ -20,6 +20,7 @@ import { CraneModel, LIVERIES } from './craneModel';
 import { Effects3D } from './effects3d';
 import { buildHook, buildLoad } from './loadModel';
 import { RopeMesh, ropeRadius } from './ropeMesh';
+import { DepthAid } from './depthAid';
 import { WorldModel, ZoneMarker } from './worldModel';
 import { loadSky, realismEnabled, skyFor } from './realism';
 
@@ -37,7 +38,7 @@ export interface SceneHooks {
   onFrame(sim: Simulation, scene: World3D): void;
   onEvents(sim: Simulation, events: SimEvent[]): void;
   onEdge(action: EdgeAction, sim: Simulation): void;
-  settings(): { cameraShake: boolean; particles: boolean };
+  settings(): { cameraShake: boolean; particles: boolean; depthAid?: boolean };
 }
 
 /** Demo-besturing voor de menu-achtergrond. */
@@ -86,6 +87,7 @@ export class World3D {
   /** Richting naar de zon (uit de HDRI zodra die geladen is). */
   private sunDir = new THREE.Vector3(0.45, 0.75, 0.5).normalize();
   private disposed = false;
+  private depthAid: DepthAid;
 
   constructor(readonly cfg: SessionConfig, readonly hooks: SceneHooks, renderer: THREE.WebGLRenderer, labelRoot: HTMLElement) {
     const dom = renderer.domElement;
@@ -181,6 +183,8 @@ export class World3D {
       this.labels.push(el);
     }
 
+    this.depthAid = new DepthAid(labelRoot);
+    this.scene.add(this.depthAid.root);
     this.rig = new CameraRig(dom);
     if (cfg.mode === 'demo') {
       this.rig.autoOrbit = 0.03;
@@ -234,6 +238,7 @@ export class World3D {
 
   dispose(): void {
     this.disposed = true;
+    this.depthAid.dispose();
     this.rig.dispose();
     for (const l of this.labels) l.remove();
     disposeGroup(this.scene);
@@ -461,6 +466,7 @@ export class World3D {
     this.rig.setCab(cabPos, { x: hp.x + Math.sin(yawOff) * 5, y: hp.y, z: hp.z + Math.cos(yawOff) * 0 });
     this.rig.update(dt, focus, this.overviewPts);
     this.dome.position.copy(this.rig.camera.position);
+    this.depthAid.update(sim, this.rig.camera, this.cfg.mode !== 'demo' && this.hooks.settings().depthAid !== false);
     // luisteraar = camera; in de cabine gedempt
     const camQ = this.rig.camera.quaternion;
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camQ);

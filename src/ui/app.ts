@@ -120,7 +120,7 @@ export class App {
       onFrame: (sim, scene) => this.onFrame(sim, scene),
       onEvents: (sim, ev) => this.onEvents(sim, ev),
       onEdge: (a, sim) => this.onEdge(a, sim),
-      settings: () => ({ cameraShake: this.save.settings.cameraShake, particles: this.save.settings.particles }),
+      settings: () => ({ cameraShake: this.save.settings.cameraShake, particles: this.save.settings.particles, depthAid: this.save.settings.depthAid }),
     };
   }
 
@@ -895,7 +895,7 @@ export class App {
       'div',
       { class: 'settings' },
       h('section', { class: 'panel' }, h('h3', null, 'Audio'), slider('Mastervolume', s.masterVolume, (v) => (s.masterVolume = v)), slider('Muziek', s.musicVolume, (v) => (s.musicVolume = v)), slider('Geluidseffecten', s.sfxVolume, (v) => (s.sfxVolume = v)), !audio.available ? h('p', { class: 'muted' }, 'Audio start na de eerste klik of toetsaanslag.') : null),
-      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
+      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), toggle('Dieptehulp bij hijsen (loodlijn, voetafdruk, hoogte)', s.depthAid, (v) => (s.depthAid = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
       analogPanel,
       h('section', { class: 'panel' }, h('h3', null, 'Besturing'), h('p', { class: 'muted', style: 'font-size:.85em' }, 'Klik op een toets om die te wijzigen. Esc annuleert.'), binds, h('button', { class: 'btn small', style: 'margin-top:.6em', onclick: () => { s.bindings = structuredClone(DEFAULT_BINDINGS); this.input.setBindings(s.bindings); this.persist(); this.showSettings(inGame); } }, 'Standaardbesturing herstellen')),
     );

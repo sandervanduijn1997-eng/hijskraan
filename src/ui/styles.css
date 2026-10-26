@@ -23,6 +23,7 @@ body { background: var(--sky); }
 #game { position: fixed; inset: 0; }
 #game canvas { display: block; touch-action: none; }
 #game .labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.depth-label { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
 .zone-label { position: absolute; left: 0; top: 0; padding: 0.25em 0.6em; border-radius: 3px; background: rgba(20, 22, 26, 0.75); color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap; }
 #ui { position: fixed; inset: 0; pointer-events: none; font-size: calc(16px * var(--ui-scale)); }
 #ui > * { pointer-events: auto; }

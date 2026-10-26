@@ -461,6 +461,27 @@ export class Simulation {
     return localToWorld(b, b.boxOffset.x, b.boxOffset.y + b.halfH + l.type.slingHeight);
   }
 
+  /**
+   * Hoogste oppervlak onder een rechthoek (x, z ± halve maten) dat lager ligt dan fromY:
+   * obstakels en andere lasten (voor de dieptehulp). Zonder iets eronder: de grond (0).
+   */
+  surfaceBelow(x: number, z: number, hw: number, hd: number, fromY: number, exclude?: LoadRuntime): { y: number; id: string } {
+    let best = { y: 0, id: 'ground' };
+    for (const c of this.colliders) {
+      if (c.kind === 'ceiling' || c.maxY > fromY + 0.05) continue;
+      if (x + hw <= c.minX || x - hw >= c.maxX || z + hd <= c.minZ || z - hd >= c.maxZ) continue;
+      if (c.maxY > best.y) best = { y: c.maxY, id: c.id };
+    }
+    for (const l of this.loads) {
+      if (l === exclude || l.status === 'consumed') continue;
+      const bb = bodyBounds(l.cb.body);
+      if (bb.maxY > fromY + 0.05) continue;
+      if (x + hw <= bb.minX || x - hw >= bb.maxX || z + hd <= bb.minZ || z - hd >= bb.maxZ) continue;
+      if (bb.maxY > best.y) best = { y: bb.maxY, id: l.id };
+    }
+    return best;
+  }
+
   /** De dichtstbijzijnde last die aangeslagen kan worden. */
   attachCandidate(): LoadRuntime | null {
     if (this.attached || !this.hookBody) return null;
