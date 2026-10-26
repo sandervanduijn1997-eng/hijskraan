@@ -4,6 +4,8 @@ import { CRANES, CRANE_IDS, getCrane } from '../cranes/config/cranes';
 import type { CraneId } from '../cranes/config/types';
 import { UPGRADES, upgradePrice } from '../cranes/config/upgrades';
 import { generateLoadChart, allowedCapacityT } from '../cranes/models/capacity';
+import type { LmiSetup } from '../cranes/models/lmi';
+import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
 import { resolveCrane } from '../cranes/models/craneSpec';
 import { createCraneState } from '../cranes/models/craneState';
 import { applyMissionResult, buyCrane, buyUpgrade, canBuyCrane, canBuyUpgrade, computePayout, formatMoney, isOwned, rentCost, repairCost, repairCrane } from '../economy/economy';
@@ -37,7 +39,7 @@ const ACTION_LABELS: Record<ActionId, string> = {
   teleOut: 'Telescoop uit', teleIn: 'Telescoop in', trolleyOut: 'Loopkat naar buiten', trolleyIn: 'Loopkat naar binnen', knuckleUp: 'Knikarm omhoog', knuckleDown: 'Knikarm omlaag',
   knuckleTeleOut: 'Knikarm-telescoop uit', knuckleTeleIn: 'Knikarm-telescoop in', driveLeft: 'Rijden links', driveRight: 'Rijden rechts', precision: 'Precisiebediening',
   rigging: 'Aanslaan / afkoppelen', outriggerMode: 'Stempelmodus', outriggerAuto: 'Automatische stempelprocedure', setup: 'Opbouwprocedure (vasthouden)', pause: 'Pauze',
-  menu: 'Menu', zoomIn: 'Inzoomen', zoomOut: 'Uitzoomen', overview: 'Overzichtsmodus', cameraReset: 'Camera herstellen', cameraMode: 'Camera: volgen / cabine', horn: 'Claxon', help: 'Bedieningsoverzicht',
+  menu: 'Menu', zoomIn: 'Inzoomen', zoomOut: 'Uitzoomen', overview: 'Overzichtsmodus', cameraReset: 'Camera herstellen', cameraMode: 'Camera: volgen / cabine', horn: 'Claxon', help: 'Bedieningsoverzicht', lmi: 'Lastmomentbegrenzer instellen',
 };
 
 interface PlanChoice {
@@ -157,6 +159,7 @@ export class App {
         craneId: p.craneId,
         upgrades: isOwned(this.save, p.craneId) ? ups : [],
         difficulty: DIFFICULTIES[p.difficulty],
+        manualLmi: p.difficulty !== 'practice',
         condition: isOwned(this.save, p.craneId) ? this.save.craneCondition[p.craneId] ?? 1 : 1,
         counterweightIndex: p.cw,
         boomOptionIndex: p.boom,
@@ -284,6 +287,10 @@ export class App {
         break;
       case 'horn':
         audio.horn();
+        break;
+      case 'lmi':
+        if (sim.manualLmi && !this.scene?.paused) this.showLmiPanel(sim);
+        else if (!sim.manualLmi) this.hud?.toast('De begrenzer van deze kraan stelt zich automatisch in.');
         break;
       case 'help':
         if (!this.scene?.paused) this.togglePause();
@@ -713,7 +720,7 @@ export class App {
                 return;
               }
               const m = practiceMission({ craneId: state.craneId, loadType: state.load, environment: state.env, windBase: state.wind, gravity: state.gravity });
-              this.startPlay({ mode: 'practice', sim: { mission: m, craneId: state.craneId, difficulty: DIFFICULTIES[state.difficulty], gravity: state.gravity, freePlay: true, upgrades: this.save.upgrades[state.craneId] ?? [] }, livery: this.save.activeLivery });
+              this.startPlay({ mode: 'practice', sim: { mission: m, craneId: state.craneId, difficulty: DIFFICULTIES[state.difficulty], manualLmi: state.difficulty !== 'practice', gravity: state.gravity, freePlay: true, upgrades: this.save.upgrades[state.craneId] ?? [] }, livery: this.save.activeLivery });
             },
           }, '▶ Start oefening'),
         ),
@@ -742,7 +749,7 @@ export class App {
   private startChallenge(c: ChallengeDef): void {
     const m = challengeMission(c);
     const craneId = m.craneOptions[0];
-    this.startPlay({ mode: 'challenge', challengeId: c.id, sim: { mission: m, craneId, difficulty: DIFFICULTIES[this.save.settings.difficulty], upgrades: isOwned(this.save, craneId) ? this.save.upgrades[craneId] ?? [] : [] }, livery: this.save.activeLivery });
+    this.startPlay({ mode: 'challenge', challengeId: c.id, sim: { mission: m, craneId, difficulty: DIFFICULTIES[this.save.settings.difficulty], manualLmi: this.save.settings.difficulty !== 'practice', upgrades: isOwned(this.save, craneId) ? this.save.upgrades[craneId] ?? [] : [] }, livery: this.save.activeLivery });
   }
 
   // ------------------------------------------------------------------ vloot
@@ -936,6 +943,56 @@ export class App {
   }
 
   /** Testhaak voor end-to-end-tests en debugging. */
+  /** LMI-invoer in de cabine: opstelling, contragewicht, schijvenstel en hulpgiek, met voorbeeldcapaciteit. */
+  private showLmiPanel(sim: Simulation): void {
+    const spec = sim.spec;
+    const cur = sim.lmi;
+    const cfg = { setup: cur.setup, counterweightIndex: cur.counterweightIndex, parts: cur.parts, jibIndex: cur.jibIndex };
+    this.scene?.setPaused(true);
+    this.input.enabled = false;
+    const sel = <T extends string | number>(id: string, label: string, opts: [T, string][], val: T, on: (v: T) => void) => {
+      const s = h('select', { id }, ...opts.map(([v, l]) => h('option', { value: String(v), selected: v === val }, l))) as HTMLSelectElement;
+      s.addEventListener('change', () => {
+        const raw = opts.find(([v]) => String(v) === s.value)![0];
+        on(raw);
+        preview();
+      });
+      return h('label', { class: 'line' }, label, s);
+    };
+    const setups: [LmiSetup, string][] = spec.gb.outriggerCount > 0 ? (['outriggers', 'partial', 'tires'] as LmiSetup[]).map((k) => [k, LMI_SETUP_LABEL[k]]) : [['tires', spec.cfg.carrier === 'crawler' ? 'Op rupsen' : 'Op banden']];
+    if (!setups.some(([k]) => k === cfg.setup)) cfg.setup = setups[0][0];
+    const out = h('div', { class: 'lmi-preview' });
+    const preview = () => {
+      const cap = lmiCapacityT(spec, sim.crane, { ...cfg, configured: true });
+      const real = actualCapacityT(spec, sim.crane, sim.parts);
+      out.textContent = `Begrenzer laat op ${sim.geom.radius.toFixed(1)} m toe: ${cap.toFixed(1)} t`;
+      out.classList.toggle('danger', cap > real + 0.05);
+    };
+    const close = () => {
+      this.closeOverlay();
+      this.scene?.setPaused(false);
+      this.input.enabled = true;
+    };
+    const panel = h(
+      'div',
+      { class: 'screen dim' },
+      h(
+        'div',
+        { class: 'dialog panel lmi-panel', 'data-testid': 'lmi-panel' },
+        h('h2', null, 'Lastmomentbegrenzer — instelling'),
+        h('p', { class: 'muted' }, `Voer de opstelling in zoals die werkelijk is. Een verkeerde invoer geeft een verkeerd lastdiagram. Haakblok: ${maxParts(spec)} parten mogelijk, nu ingeschoren: ${sim.parts}.`),
+        sel('lmi-setup', 'Opstelling', setups, cfg.setup, (v) => (cfg.setup = v)),
+        sel('lmi-cw', 'Contragewicht', spec.counterweights.map((c, i) => [i, c.label] as [number, string]), cfg.counterweightIndex, (v) => (cfg.counterweightIndex = v)),
+        sel('lmi-parts', 'Schijvenstel (kabelparten)', partOptions(spec).map((p) => [p, `${p} ${p === 1 ? 'part' : 'parten'}`] as [number, string]), cfg.parts, (v) => (cfg.parts = v)),
+        spec.jibOptions.length > 1 ? sel('lmi-jib', 'Hulpgiek', spec.jibOptions.map((j, i) => [i, j > 0 ? `${j} m` : 'geen'] as [number, string]), cfg.jibIndex, (v) => (cfg.jibIndex = v)) : null,
+        out,
+        h('div', { class: 'row', style: 'margin-top:1em' }, h('button', { class: 'btn primary', 'data-testid': 'lmi-confirm', onclick: () => { sim.configureLmi(cfg); audio.ui('confirm'); close(); this.hud?.toast('Lastmomentbegrenzer ingesteld'); } }, 'Bevestigen'), h('button', { class: 'btn', onclick: close }, 'Annuleren')),
+      ),
+    );
+    this.openOverlay(panel);
+    preview();
+  }
+
   debugApi(): Record<string, unknown> {
     return {
       sim: () => this.scene?.sim ?? null,

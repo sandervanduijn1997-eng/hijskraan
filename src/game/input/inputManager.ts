@@ -7,9 +7,9 @@ import type { AnalogSettings } from './analog';
 import { defaultAnalog, keyRampLevel, stickToCommand } from './analog';
 
 /** Eenmalige acties (flank) die de scene afhandelt. */
-export type EdgeAction = 'rigging' | 'outriggerMode' | 'outriggerAuto' | 'pause' | 'menu' | 'overview' | 'cameraReset' | 'cameraMode' | 'horn' | 'zoomIn' | 'zoomOut' | 'help';
+export type EdgeAction = 'rigging' | 'outriggerMode' | 'outriggerAuto' | 'pause' | 'menu' | 'overview' | 'cameraReset' | 'cameraMode' | 'horn' | 'zoomIn' | 'zoomOut' | 'help' | 'lmi';
 
-const EDGE: EdgeAction[] = ['rigging', 'outriggerMode', 'outriggerAuto', 'pause', 'menu', 'overview', 'cameraReset', 'cameraMode', 'horn', 'zoomIn', 'zoomOut', 'help'];
+const EDGE: EdgeAction[] = ['rigging', 'outriggerMode', 'outriggerAuto', 'pause', 'menu', 'overview', 'cameraReset', 'cameraMode', 'horn', 'zoomIn', 'zoomOut', 'help', 'lmi'];
 
 /**
  * Bron-onafhankelijke invoerlaag. Toetsenbord is nu de bron; een gamepad-bron kan later

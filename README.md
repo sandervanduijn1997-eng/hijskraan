@@ -44,6 +44,8 @@ Toetsen lopen op: kort tikken geeft 15 % snelheid, vasthouden loopt in ca. 1 s o
 
 **Controller** (standaardindeling, bijv. Xbox/PlayStation): linkerstick = draaien en giek op/neer (torenkraan: loopkat), rechterstick = hijsen/vieren en telescoop (knikarm: knikarm), triggers = rijden, RB = precisie, LB = opbouw (vasthouden), A = aanslaan, X = stempels automatisch, Y = camera, B = overzicht, Start = pauze, D-pad = zoom. Dode zone, responscurve en een omgekeerde hijsas zijn instelbaar.
 
+**L** = lastmomentbegrenzer instellen (opstelling, contragewicht, schijvenstel, hulpgiek). Op Normaal en Realistisch hijst de kraan pas na het instellen; een verkeerde invoer geeft een verkeerd lastdiagram en telt als veiligheidsovertreding.
+
 Algemeen: **V** camera volgen/cabine · **Shift** precisie · **T** aanslaan/afkoppelen · **O** stempelmodus (W/S schuiven, E/Q vijzels, 1–4 kiezen, 0 = alle) · **P** automatische stempelprocedure · **B** (vasthouden) opbouwprocedure · **Spatie** pauze · **Esc** menu · **+/−/muiswiel** zoom · **Tab** overzicht · **C** camera herstellen · **H** claxon · **F1** bedieningsoverzicht.
 
 ## Weergave

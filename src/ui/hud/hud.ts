@@ -1,6 +1,7 @@
 import { levelFor } from '../../career/career';
 import { outriggerPad } from '../../cranes/controllers/craneController';
 import { hasSetupProcedure, setupStageLabel } from '../../cranes/models/kinematics';
+import { LMI_SETUP_LABEL } from '../../cranes/models/lmi';
 import { formatMoney } from '../../economy/economy';
 import { GROUND_LABEL, groundAt } from '../../physics/ground';
 import type { ActionId } from '../../save/saveSystem';
@@ -93,6 +94,7 @@ export class Hud {
         'div',
         { class: 'hud-data box' },
         h('h4', null, 'Lastmomentbegrenzer'),
+        E('lmicfg', 'lmi-cfg'),
         h('div', { class: 'dgrid' }, ...row('Toegestaan', 'cap'), ...row('Werkstraal', 'radius'), ...row('Lastgewicht', 'load'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres')),
         h(
           'div',
@@ -201,6 +203,13 @@ export class Hud {
     setText(this.el.radius, `${fmt(g.radius)} m`);
     setText(this.el.hookH, `${fmt(sim.hookPoint().y)} m`);
     setText(this.el.rope, `${fmt(sim.rope.length)} m`);
+    // ingestelde opstelling volgens de begrenzer
+    if (sim.manualLmi) {
+      const l = sim.lmi;
+      const mm = sim.lmiMismatch();
+      setText(this.el.lmicfg, l.configured ? `${LMI_SETUP_LABEL[l.setup]} · ${sim.spec.counterweights[l.counterweightIndex]?.label ?? ''} · ${l.parts} parten${mm.length ? ' ⚠' : ''}` : 'NIET INGESTELD — druk L');
+      setClass(this.el.lmicfg, l.configured ? (mm.length ? 'lmi-cfg bad' : 'lmi-cfg') : 'lmi-cfg warn');
+    } else setText(this.el.lmicfg, '');
     setText(this.el.rpm, sim.crane.rpm > 0 ? `${Math.round(sim.crane.rpm / 10) * 10} tpm` : 'elektrisch');
     setText(this.el.pres, sim.crane.rpm > 0 ? `${sim.crane.hydPressure} bar` : '—');
     const cw = sim.spec.counterweights[sim.crane.counterweightIndex];

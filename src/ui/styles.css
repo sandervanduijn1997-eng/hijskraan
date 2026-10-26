@@ -222,3 +222,12 @@ select, input[type='number'] { background: #23272d; color: var(--text); border: 
   .hud-keys { display: none; }
   .logo .l1 { font-size: 3em; }
 }
+
+.lmi-cfg { display: block; font-family: var(--mono); font-size: 0.72em; color: #7ff0a8; margin: -0.2em 0 0.4em; }
+.lmi-cfg.warn { color: #ffd166; animation: blink 1.2s steps(2) infinite; }
+.lmi-cfg.bad { color: #ff6b5b; }
+.lmi-panel { width: min(560px, 95vw); }
+.lmi-panel .line { display: flex; justify-content: space-between; align-items: center; gap: 1em; margin: 0.45em 0; }
+.lmi-preview { margin-top: 0.8em; padding: 0.6em 0.8em; font-family: var(--mono); background: #0d1410; color: #b6f5c8; border-radius: 4px; }
+.lmi-preview.danger { color: #ff6b5b; }
+@keyframes blink { 50% { opacity: 0.35; } }

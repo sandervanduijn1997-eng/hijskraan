@@ -2,6 +2,8 @@ export type WarningLevel = 'info' | 'caution' | 'critical';
 
 export type WarningId =
   | 'tipping'
+  | 'lmiSetup'
+  | 'lmiMismatch'
   | 'overload'
   | 'stability'
   | 'outriggers'
@@ -28,6 +30,8 @@ export interface Warning {
 }
 
 const PRIORITY: Record<WarningId, number> = {
+  lmiMismatch: 95,
+  lmiSetup: 30,
   tipping: 100,
   overload: 90,
   stability: 85,

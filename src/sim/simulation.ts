@@ -12,6 +12,8 @@ import type { CraneState } from '../cranes/models/craneState';
 import { createCraneState } from '../cranes/models/craneState';
 import type { CraneGeometry } from '../cranes/models/kinematics';
 import { computeGeometry, hasSetupProcedure, setupStageLabel } from '../cranes/models/kinematics';
+import type { LmiConfig } from '../cranes/models/lmi';
+import { autoLmi, hasLmiSetup, lmiCapacityT, lmiMismatch, maxParts } from '../cranes/models/lmi';
 import type { ErectionLayout, TowerBuild } from '../cranes/models/towerErection';
 import { TOWER_BALLAST_H, TOWER_BALLAST_W, TOWER_ERECTION_SECTIONS, TOWER_HEAD_H, TOWER_SLEW_UNIT_H, emptyTowerBuild, erectionLayout } from '../cranes/models/towerErection';
 import type { CraneStartConfig } from '../cranes/models/craneState';
@@ -89,6 +91,8 @@ export interface SimOptions {
   jibIndex?: number;
   gravity?: number;
   freePlay?: boolean;
+  /** De speler stelt de lastmomentbegrenzer zelf in (anders: automatisch correct). */
+  manualLmi?: boolean;
 }
 
 export type MissionOutcome = 'running' | 'success' | 'failed';
@@ -143,6 +147,11 @@ export class Simulation {
   private readonly missionStart: CraneStartConfig;
   private readonly missionCondition: number;
   private fuelOffset = 0;
+  /** Instelling van de lastmomentbegrenzer en het werkelijke schijvenstel (aantal kabelparten). */
+  lmi: LmiConfig;
+  parts: number;
+  readonly manualLmi: boolean;
+  private lmiViolationLatched = false;
   colliders: Collider[];
   readonly missionColliders: Collider[];
   private craneCollKey = '';
@@ -215,6 +224,9 @@ export class Simulation {
       : null;
     this.crane = createCraneState(this.spec, asm ? asm.assist : start);
     this.geom = computeGeometry(this.spec, this.crane);
+    this.manualLmi = (opt.manualLmi ?? false) && hasLmiSetup(this.spec);
+    this.parts = maxParts(this.spec);
+    this.lmi = this.manualLmi ? { ...autoLmi(this.spec, this.crane, this.parts), configured: false } : autoLmi(this.spec, this.crane, this.parts);
     this.prevTip = { ...this.geom.tip };
 
     const params = defaultPhysicsParams();
@@ -461,6 +473,16 @@ export class Simulation {
     return localToWorld(b, b.boxOffset.x, b.boxOffset.y + b.halfH + l.type.slingHeight);
   }
 
+  /** Stel de lastmomentbegrenzer in (vanuit de cabine). */
+  configureLmi(cfg: Omit<LmiConfig, 'configured'>): void {
+    this.lmi = { ...cfg, configured: true };
+  }
+
+  /** Afwijkingen tussen de LMI-invoer en de werkelijke opstelling. */
+  lmiMismatch(): string[] {
+    return this.manualLmi ? lmiMismatch(this.spec, this.crane, this.lmi, this.parts) : [];
+  }
+
   /**
    * Hoogste oppervlak onder een rechthoek (x, z ± halve maten) dat lager ligt dan fromY:
    * obstakels en andere lasten (voor de dieptehulp). Zonder iets eronder: de grond (0).
@@ -635,7 +657,8 @@ export class Simulation {
     this.tensionF += (this.rope.tension - this.tensionF) * k;
     this.tensionFast += (this.rope.tension - this.tensionFast) * (1 - Math.exp(-dt / 0.04));
     this.support = supportState(this.spec, this.crane);
-    this.capacityT = allowedCapacityT(this.spec, this.crane);
+    // de begrenzer rekent met de invoer van de machinist; zonder handmatige instelling met de werkelijkheid
+    this.capacityT = this.manualLmi ? lmiCapacityT(this.spec, this.crane, this.lmi) : allowedCapacityT(this.spec, this.crane);
     const loadT = this.tensionF / GRAVITY / 1000;
     this.loadPct = Math.min(999, loadPercent(loadT, this.capacityT));
     this.lmiPct = Math.min(999, loadPercent(this.tensionFast / GRAVITY / 1000, this.capacityT));
@@ -852,6 +875,15 @@ export class Simulation {
       W.raise('ground', 'caution', `Ondergrond te zwak (factor ${this.groundFactor.toFixed(2)}) — kies een stevigere plek`);
       if (lifted && req.minGroundFactor && !this.groundViolationLatched) {
         this.groundViolationLatched = true;
+        this.metrics.safetyViolations++;
+      }
+    }
+    if (this.manualLmi && !this.lmi.configured) W.raise('lmiSetup', this.attached ? 'caution' : 'info', 'Lastmomentbegrenzer niet ingesteld — druk L om de opstelling in te voeren');
+    const mm = this.lmiMismatch();
+    if (mm.length && (this.attached || lifted)) {
+      W.raise('lmiMismatch', 'critical', `LMI-instelling klopt niet: ${mm[0]}`);
+      if (lifted && !this.lmiViolationLatched) {
+        this.lmiViolationLatched = true;
         this.metrics.safetyViolations++;
       }
     }

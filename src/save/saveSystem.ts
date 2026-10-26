@@ -12,7 +12,7 @@ export type ActionId =
   | 'boomUp' | 'boomDown' | 'slewLeft' | 'slewRight' | 'hoistUp' | 'hoistDown' | 'teleOut' | 'teleIn'
   | 'trolleyOut' | 'trolleyIn' | 'knuckleUp' | 'knuckleDown' | 'knuckleTeleOut' | 'knuckleTeleIn'
   | 'driveLeft' | 'driveRight' | 'precision' | 'rigging' | 'outriggerMode' | 'outriggerAuto' | 'setup'
-  | 'pause' | 'menu' | 'zoomIn' | 'zoomOut' | 'overview' | 'cameraReset' | 'cameraMode' | 'horn' | 'help';
+  | 'pause' | 'menu' | 'zoomIn' | 'zoomOut' | 'overview' | 'cameraReset' | 'cameraMode' | 'horn' | 'help' | 'lmi';
 
 export const DEFAULT_BINDINGS: Record<ActionId, string[]> = {
   boomUp: ['KeyW'],
@@ -45,6 +45,7 @@ export const DEFAULT_BINDINGS: Record<ActionId, string[]> = {
   cameraMode: ['KeyV'],
   horn: ['KeyH'],
   help: ['F1'],
+  lmi: ['KeyL'],
 };
 
 export interface Settings {
