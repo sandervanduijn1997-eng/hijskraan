@@ -8,6 +8,7 @@ import type { LmiSetup } from '../cranes/models/lmi';
 import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
 import type { GearKind, PointMode, RigChoice } from '../sim/rigging';
 import { LessonRunner } from '../sim/lesson';
+import { Telemetry, summarize } from '../telemetry/telemetry';
 import { MAX_SLING_ANGLE, SLING_LENGTHS, buildRig, gearFor, legLoadT, rigProblems, suggestRig } from '../sim/rigging';
 import { resolveCrane } from '../cranes/models/craneSpec';
 import { createCraneState } from '../cranes/models/craneState';
@@ -94,12 +95,16 @@ export class App {
   private lesson: LessonRunner | null = null;
   private lessonSim: Simulation | null = null;
   private lessonTime = 0;
+  private telemetry: Telemetry;
+  private telemetrySim: Simulation | null = null;
   private resultShown = false;
   private notice: HTMLElement | null = null;
 
   constructor(private host: Host3D, private storage: StorageLike, loadStatus?: (s: string) => void) {
     const res = loadGame(storage);
     this.save = res.data;
+    this.telemetry = new Telemetry(storage);
+    window.addEventListener('pagehide', () => this.telemetry.end('quit'));
     loadStatus?.(res.status);
     this.ui = document.getElementById('ui')!;
     this.input = new InputManager(this.save.settings.bindings);
@@ -226,6 +231,11 @@ export class App {
       timeLimitActive: sim.difficulty.timer && this.session?.mode === 'career',
     });
     this.updateLesson(sim, scene);
+    if (this.telemetrySim !== sim) {
+      this.telemetrySim = sim;
+      this.telemetry.begin(sim, this.session?.mode ?? 'career', sim.difficulty.id);
+    }
+    this.telemetry.sample(sim, this.lesson?.stepId ?? null);
     const v = sim.crane.vel;
     const gb = sim.spec.gb;
     const hyd = Math.min(1, Math.abs(v.luff) / Math.max(1e-6, gb.luffSpeedDeg * 0.0175) + Math.abs(v.tele) / Math.max(1e-6, gb.teleSpeed || 1) + Math.abs(v.slew) / Math.max(1e-6, gb.slewSpeedDeg * 0.0175) * 0.5 + Math.abs(v.knuckle) * 3 + Math.abs(v.trolley) * 0.5);
@@ -251,6 +261,7 @@ export class App {
           if (e.speed > 0.1) audio.impact(e.speed, e.mass, e.obstacle, { x: e.x, y: e.y, z: sim.hookPoint().z });
           break;
         case 'warning':
+          this.telemetry.warning(e.warning.id);
           if (e.warning.level !== 'info') audio.warning(e.warning.level);
           break;
         case 'lmiCutoff':
@@ -266,6 +277,9 @@ export class App {
           if (this.save.settings.signalman !== 'text') speak('Stop! Mensen onder de last!');
           break;
         case 'attach':
+          this.telemetry.attach();
+          audio.rigging(sim.attachedMassT() > 5, sim.hookPoint());
+          break;
         case 'detach':
           audio.rigging(sim.attachedMassT() > 5, sim.hookPoint());
           break;
@@ -289,6 +303,7 @@ export class App {
           break;
         case 'success':
         case 'fail':
+          this.telemetry.end(e.type === 'success' ? 'success' : 'failed', e.type === 'fail' ? e.reason : undefined, sim.score?.stars);
           audio.ui(e.type === 'success' ? 'success' : 'fail');
           if (!this.resultShown) {
             this.resultShown = true;
@@ -443,6 +458,8 @@ export class App {
   }
 
   showMainMenu(): void {
+    this.telemetry.end('quit');
+    this.telemetrySim = null;
     const lv = levelFor(this.save.xp);
     const next = nextMission(this.save);
     this.openScreen(
@@ -956,11 +973,42 @@ export class App {
       h('section', { class: 'panel' }, h('h3', null, 'Audio'), slider('Mastervolume', s.masterVolume, (v) => (s.masterVolume = v)), slider('Muziek', s.musicVolume, (v) => (s.musicVolume = v)), slider('Geluidseffecten', s.sfxVolume, (v) => (s.sfxVolume = v)), !audio.available ? h('p', { class: 'muted' }, 'Audio start na de eerste klik of toetsaanslag.') : null),
       h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('label', { class: 'line' }, 'Signaalgever (portofoon)', sigSel), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), toggle('Dieptehulp bij hijsen (loodlijn, voetafdruk, hoogte)', s.depthAid, (v) => (s.depthAid = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
       analogPanel,
+      this.telemetryPanel(),
       h('section', { class: 'panel' }, h('h3', null, 'Besturing'), h('p', { class: 'muted', style: 'font-size:.85em' }, 'Klik op een toets om die te wijzigen. Esc annuleert.'), binds, h('button', { class: 'btn small', style: 'margin-top:.6em', onclick: () => { s.bindings = structuredClone(DEFAULT_BINDINGS); this.input.setBindings(s.bindings); this.persist(); this.showSettings(inGame); } }, 'Standaardbesturing herstellen')),
     );
     if (inGame) {
       this.openOverlay(h('div', { class: 'screen dim' }, h('div', { class: 'dialog panel', style: 'width:min(1100px,95vw)' }, h('h2', null, 'Instellingen'), content, h('div', { class: 'row', style: 'margin-top:1em' }, h('button', { class: 'btn primary', onclick: () => { this.closeOverlay(); this.scene?.setPaused(false); this.input.enabled = true; } }, 'Hervatten')))));
     } else this.openScreen(h('div', { class: 'screen', 'data-testid': 'settings' }, this.head('Instellingen', () => this.showMainMenu()), h('div', { class: 'screen-body ui-scroll' }, content)));
+  }
+
+  /** Speeltestgegevens: alleen lokaal; de speler exporteert ze zelf als JSON voor het speeltestverslag. */
+  private telemetryPanel(): HTMLElement {
+    const count = h('span', { class: 'muted' }, '');
+    const refresh = () => (count.textContent = `${this.telemetry.all().length} gespeelde missies opgeslagen`);
+    refresh();
+    const exportBtn = h('button', { class: 'btn small', 'data-testid': 'telemetry-export' }, 'Exporteren (JSON)');
+    exportBtn.addEventListener('click', () => {
+      const sessions = this.telemetry.all();
+      const blob = new Blob([JSON.stringify({ format: 'crane-playtest-1', exported: new Date().toISOString().slice(0, 10), summary: summarize(sessions), sessions }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'speeltest-kraan.json';
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+    const clearBtn = h('button', { class: 'btn small' }, 'Wissen');
+    clearBtn.addEventListener('click', () => {
+      this.telemetry.clear();
+      refresh();
+    });
+    return h(
+      'section',
+      { class: 'panel' },
+      h('h3', null, 'Speeltest'),
+      h('p', { class: 'muted', style: 'font-size:.85em' }, 'Per missie worden tijd per fase, waarschuwingen, fouten en het afhaakpunt bijgehouden. Anoniem en alleen op dit apparaat; er wordt niets verstuurd.'),
+      count,
+      h('div', { class: 'row', style: 'margin-top:.6em' }, exportBtn, clearBtn),
+    );
   }
 
   showHelp(inGame: boolean): void {
