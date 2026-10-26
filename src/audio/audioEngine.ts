@@ -298,6 +298,12 @@ export class AudioEngine {
   }
 
   /** Portofoon: korte ruis en een "klik" zoals bij een signaalgever. */
+  /** Brekende strop: harde knal van staal en de vallende last. */
+  slingBreak(at?: Vec3Like): void {
+    if (!this.shot('anvil', 1, 0.7, at)) this.clank(0.5, 140);
+    this.shot('chainHeavy', 0.8, 0.9, at);
+  }
+
   radio(): void {
     if (this.shot('radioCrackle', 0.25, 1.05)) this.duck(0.4, 1.2);
   }

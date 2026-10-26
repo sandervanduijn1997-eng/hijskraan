@@ -233,3 +233,5 @@ select, input[type='number'] { background: #23272d; color: var(--text); border: 
 @keyframes blink { 50% { opacity: 0.35; } }
 
 .hud-radio { position: absolute; left: 50%; bottom: 8.6em; transform: translateX(-50%); padding: 0.45em 1em; font-weight: 600; color: #ffe08a; pointer-events: none; }
+.rig-preview .warn { color: #ffb35b; margin-top: 0.25em; font-size: 0.92em; }
+.hud .v.bad { color: #ff6b5b; }

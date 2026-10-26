@@ -4,6 +4,9 @@ export type WarningId =
   | 'tipping'
   | 'lmiSetup'
   | 'lmiMismatch'
+  | 'slingOverload'
+  | 'slingAngle'
+  | 'rigTilt'
   | 'overload'
   | 'stability'
   | 'outriggers'
@@ -31,6 +34,9 @@ export interface Warning {
 
 const PRIORITY: Record<WarningId, number> = {
   lmiMismatch: 95,
+  slingOverload: 92,
+  slingAngle: 62,
+  rigTilt: 42,
   lmiSetup: 30,
   tipping: 100,
   overload: 90,

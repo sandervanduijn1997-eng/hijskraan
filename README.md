@@ -46,6 +46,8 @@ Toetsen lopen op: kort tikken geeft 15 % snelheid, vasthouden loopt in ca. 1 s o
 
 **L** = lastmomentbegrenzer instellen (opstelling, contragewicht, schijvenstel, hulpgiek). Op Normaal en Realistisch hijst de kraan pas na het instellen; een verkeerde invoer geeft een verkeerd lastdiagram en telt als veiligheidsovertreding.
 
+**T** = aanslaan. Op Normaal en Realistisch kies je zelf het hijsgereedschap (rondstroppen met kleurcode, kettingen klasse 8 of een hijsbalk), het aantal sprongen, de stroplengte en de hijspunten. Het paneel toont de stropshoek en de belasting per sprong (G / n·cos α; een 4-sprong draagt als 3). Te korte stroppen (meer dan 60°) of te licht gereedschap zijn een overtreding; boven de breukgrens breekt de strop en valt de last. Hijspunten in het midden van een excentrische last laten hem scheef hangen.
+
 Algemeen: **V** camera volgen/cabine · **Shift** precisie · **T** aanslaan/afkoppelen · **O** stempelmodus (W/S schuiven, E/Q vijzels, 1–4 kiezen, 0 = alle) · **P** automatische stempelprocedure · **B** (vasthouden) opbouwprocedure · **Spatie** pauze · **Esc** menu · **+/−/muiswiel** zoom · **Tab** overzicht · **C** camera herstellen · **H** claxon · **F1** bedieningsoverzicht.
 
 ## Weergave

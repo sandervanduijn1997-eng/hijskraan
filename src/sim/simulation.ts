@@ -33,7 +33,7 @@ import { rangesOverlap, segmentIntersectsRect } from '../physics/collision/geome
 import { AIR_DENSITY, FIXED_DT, GRAVITY, SUBSTEPS } from '../physics/constants';
 import { groundFactorFor } from '../physics/ground';
 import type { RigidBody } from '../physics/load/rigidBody';
-import { apexWorld, bodyBounds, createBoxBody, localToWorld, setBodyMass, wakeBody } from '../physics/load/rigidBody';
+import { apexWorld, bodyBounds, bodyTilt, createBoxBody, localToWorld, setBodyMass, wakeBody } from '../physics/load/rigidBody';
 import type { StabilityResult } from '../physics/stability/stability';
 import { computeStability } from '../physics/stability/stability';
 import { loadPercent } from '../physics/stability/loadChart';
@@ -44,6 +44,8 @@ import type { Vec3 } from '../utils/math';
 import { DEG, RAD, clamp, hashString } from '../utils/math';
 import type { DifficultyProfile } from './difficulty';
 import { DIFFICULTIES } from './difficulty';
+import type { Rig, RigChoice } from './rigging';
+import { BREAK_FACTOR, MAX_SLING_ANGLE, buildRig, legLoadT, rigUtilisation, standardRig } from './rigging';
 import type { Warning } from './warnings';
 import { WarningTracker } from './warnings';
 
@@ -76,6 +78,7 @@ export type SimEvent =
   | { type: 'success' }
   | { type: 'fail'; reason: string }
   | { type: 'lmiCutoff' }
+  | { type: 'slingBreak' }
   | { type: 'towerPart'; part: TowerPartKind }
   | { type: 'craneSwitch' }
   | { type: 'warning'; warning: Warning };
@@ -93,6 +96,8 @@ export interface SimOptions {
   freePlay?: boolean;
   /** De speler stelt de lastmomentbegrenzer zelf in (anders: automatisch correct). */
   manualLmi?: boolean;
+  /** Aanslaan als vaardigheid: zelf gereedschap en hijspunten kiezen (anders de standaard aanslag). */
+  manualRigging?: boolean;
 }
 
 export type MissionOutcome = 'running' | 'success' | 'failed';
@@ -151,6 +156,11 @@ export class Simulation {
   lmi: LmiConfig;
   parts: number;
   readonly manualLmi: boolean;
+  readonly manualRigging: boolean;
+  /** Aanslag van de huidige (of laatst aangeslagen) last. */
+  rig: Rig | null = null;
+  /** Benutting van het hijsgereedschap (1 = op de werklast). */
+  rigPct = 0;
   private lmiViolationLatched = false;
   colliders: Collider[];
   readonly missionColliders: Collider[];
@@ -226,6 +236,7 @@ export class Simulation {
     this.geom = computeGeometry(this.spec, this.crane);
     this.manualLmi = (opt.manualLmi ?? false) && hasLmiSetup(this.spec);
     this.parts = maxParts(this.spec);
+    this.manualRigging = opt.manualRigging ?? false;
     this.lmi = this.manualLmi ? { ...autoLmi(this.spec, this.crane, this.parts), configured: false } : autoLmi(this.spec, this.crane, this.parts);
     this.prevTip = { ...this.geom.tip };
 
@@ -522,13 +533,14 @@ export class Simulation {
     return best;
   }
 
-  private attachLoad(l: LoadRuntime, initial = false): void {
+  private attachLoad(l: LoadRuntime, initial = false, rig: Rig = standardRig(l.type)): void {
     if (this.hookBody) {
       this.world.removeBody(this.hookBody);
       this.hookBody = null;
     }
     const b = l.cb.body;
-    b.apex = { x: b.apex.x, y: b.boxOffset.y + b.halfH + l.type.slingHeight + this.hookH };
+    this.rig = rig;
+    b.apex = { x: b.boxOffset.x + rig.apexX, y: b.boxOffset.y + b.halfH + rig.height + this.hookH };
     setBodyMass(b, l.type.massKg + this.hookMassKg, { mass: this.hookMassKg, x: b.apex.x, y: b.apex.y });
     l.cb.extraPoints = [{ x: b.apex.x, y: b.apex.y - this.hookH }];
     b.frozen = false;
@@ -550,8 +562,9 @@ export class Simulation {
     if (!l) return;
     const b = l.cb.body;
     const hookAt = apexWorld(b);
-    b.apex = { x: b.apex.x, y: b.boxOffset.y + b.halfH + l.type.slingHeight };
+    b.apex = { x: b.boxOffset.x, y: b.boxOffset.y + b.halfH + l.type.slingHeight };
     setBodyMass(b, l.type.massKg);
+    this.rigPct = 0;
     l.cb.extraPoints = [];
     l.status = placed ? 'placed' : 'resting';
     this.attached = null;
@@ -576,8 +589,21 @@ export class Simulation {
       // geplaatste last mag opnieuw worden opgepakt; de taak gaat dan terug naar actief
       for (const t of this.tasks) if (t.def.type === 'deliver' && t.def.loadId === c.id && t.status === 'done') t.status = 'pending';
     }
+    if (this.manualRigging) return 'choose';
     this.attachLoad(c);
     return `${c.type.name} aangeslagen.`;
+  }
+
+  /** Aanslaan met een zelf gekozen aanslag (na het aanslagpaneel). */
+  attachWith(choice: RigChoice): string {
+    if (this.outcome !== 'running' || this.attached) return '';
+    const c = this.attachCandidate();
+    if (!c) return 'Geen last binnen bereik van de haak.';
+    if (c.status === 'placed') for (const t of this.tasks) if (t.def.type === 'deliver' && t.def.loadId === c.id && t.status === 'done') t.status = 'pending';
+    const rig = buildRig(c.type, choice);
+    this.attachLoad(c, false, rig);
+    if (rig.angle > MAX_SLING_ANGLE) this.metrics.safetyViolations++;
+    return `${c.type.name} aangeslagen: ${rig.label}.`;
   }
 
   // ---------------------------------------------------------------- stap
@@ -793,6 +819,7 @@ export class Simulation {
     if (this.attached) {
       m.maxLoadPct = Math.max(m.maxLoadPct, this.loadPct);
       if (this.loadPct > 100) m.overloadTime += dt;
+      this.checkSlings();
     }
     if (lifted) {
       this.liftSettle += dt;
@@ -801,6 +828,26 @@ export class Simulation {
         m.peakLiftPct = Math.max(m.peakLiftPct, this.loadPct);
       }
     } else this.liftSettle = 0;
+  }
+
+  /** Belasting van het hijsgereedschap; boven de breukgrens breekt een strop en valt de last. */
+  private checkSlings(): void {
+    const l = this.attached;
+    const rig = this.rig;
+    if (!l || !rig || !Number.isFinite(rig.wll)) {
+      this.rigPct = 0;
+      return;
+    }
+    const loadT = Math.max(0, this.tensionFast / GRAVITY - this.hookMassKg) / 1000;
+    this.rigPct = rigUtilisation(rig, loadT) * 100;
+    const kind = rig.choice?.gear.kind ?? 'round';
+    if (this.rigPct / 100 > BREAK_FACTOR[kind]) {
+      const leg = legLoadT(rig, loadT);
+      this.detachLoad(false);
+      l.damage = Math.max(l.damage, 0.5);
+      this.events.push({ type: 'slingBreak' });
+      this.fail(`${kind === 'beam' ? 'De hijsbalk bezweek' : 'Een strop brak'}: ${leg.toFixed(1).replace('.', ',')} t op gereedschap met ${String(rig.wll).replace('.', ',')} t werklast.`);
+    }
   }
 
   private evaluateWarnings(ctl: ControlResult): void {
@@ -876,6 +923,16 @@ export class Simulation {
       if (lifted && req.minGroundFactor && !this.groundViolationLatched) {
         this.groundViolationLatched = true;
         this.metrics.safetyViolations++;
+      }
+    }
+    if (this.attached && this.rig?.choice) {
+      const rig = this.rig;
+      if (this.rigPct > 100) W.raise('slingOverload', 'critical', `Hijsgereedschap overbelast: ${Math.round(this.rigPct)} % van de werklast`);
+      else if (this.rigPct > 90) W.raise('slingOverload', 'caution', `Hijsgereedschap zwaar belast: ${Math.round(this.rigPct)} %`);
+      if (rig.angle > MAX_SLING_ANGLE) W.raise('slingAngle', 'caution', `Stropshoek ${Math.round(rig.angle * RAD)}° — te plat (max. 60°)`);
+      if (lifted) {
+        const tilt = Math.abs(bodyTilt(this.attached.cb.body).roll) * RAD;
+        if (tilt > 4) W.raise('rigTilt', 'info', `Last hangt ${Math.round(tilt)}° scheef — hijspunten niet boven het zwaartepunt`);
       }
     }
     if (this.manualLmi && !this.lmi.configured) W.raise('lmiSetup', this.attached ? 'caution' : 'info', 'Lastmomentbegrenzer niet ingesteld — druk L om de opstelling in te voeren');

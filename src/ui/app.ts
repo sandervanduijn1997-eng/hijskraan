@@ -6,6 +6,8 @@ import { UPGRADES, upgradePrice } from '../cranes/config/upgrades';
 import { generateLoadChart, allowedCapacityT } from '../cranes/models/capacity';
 import type { LmiSetup } from '../cranes/models/lmi';
 import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
+import type { GearKind, PointMode, RigChoice } from '../sim/rigging';
+import { MAX_SLING_ANGLE, SLING_LENGTHS, buildRig, gearFor, legLoadT, rigProblems, suggestRig } from '../sim/rigging';
 import { resolveCrane } from '../cranes/models/craneSpec';
 import { createCraneState } from '../cranes/models/craneState';
 import { applyMissionResult, buyCrane, buyUpgrade, canBuyCrane, canBuyUpgrade, computePayout, formatMoney, isOwned, rentCost, repairCost, repairCrane } from '../economy/economy';
@@ -179,6 +181,7 @@ export class App {
         upgrades: isOwned(this.save, p.craneId) ? ups : [],
         difficulty: DIFFICULTIES[p.difficulty],
         manualLmi: p.difficulty !== 'practice',
+        manualRigging: p.difficulty !== 'practice',
         condition: isOwned(this.save, p.craneId) ? this.save.craneCondition[p.craneId] ?? 1 : 1,
         counterweightIndex: p.cw,
         boomOptionIndex: p.boom,
@@ -248,6 +251,9 @@ export class App {
         case 'lmiCutoff':
           audio.lmiBeep();
           break;
+        case 'slingBreak':
+          audio.slingBreak(sim.hookPoint());
+          break;
         case 'attach':
         case 'detach':
           audio.rigging(sim.attachedMassT() > 5, sim.hookPoint());
@@ -290,7 +296,8 @@ export class App {
       case 'rigging': {
         if (this.scene?.paused) return;
         const msg = sim.toggleRigging();
-        if (msg) this.hud?.toast(msg);
+        if (msg === 'choose') this.showRigPanel(sim);
+        else if (msg) this.hud?.toast(msg);
         break;
       }
       case 'outriggerMode': {
@@ -749,7 +756,7 @@ export class App {
                 return;
               }
               const m = practiceMission({ craneId: state.craneId, loadType: state.load, environment: state.env, windBase: state.wind, gravity: state.gravity });
-              this.startPlay({ mode: 'practice', sim: { mission: m, craneId: state.craneId, difficulty: DIFFICULTIES[state.difficulty], manualLmi: state.difficulty !== 'practice', gravity: state.gravity, freePlay: true, upgrades: this.save.upgrades[state.craneId] ?? [] }, livery: this.save.activeLivery });
+              this.startPlay({ mode: 'practice', sim: { mission: m, craneId: state.craneId, difficulty: DIFFICULTIES[state.difficulty], manualLmi: state.difficulty !== 'practice', manualRigging: state.difficulty !== 'practice', gravity: state.gravity, freePlay: true, upgrades: this.save.upgrades[state.craneId] ?? [] }, livery: this.save.activeLivery });
             },
           }, '▶ Start oefening'),
         ),
@@ -778,7 +785,7 @@ export class App {
   private startChallenge(c: ChallengeDef): void {
     const m = challengeMission(c);
     const craneId = m.craneOptions[0];
-    this.startPlay({ mode: 'challenge', challengeId: c.id, sim: { mission: m, craneId, difficulty: DIFFICULTIES[this.save.settings.difficulty], manualLmi: this.save.settings.difficulty !== 'practice', upgrades: isOwned(this.save, craneId) ? this.save.upgrades[craneId] ?? [] : [] }, livery: this.save.activeLivery });
+    this.startPlay({ mode: 'challenge', challengeId: c.id, sim: { mission: m, craneId, difficulty: DIFFICULTIES[this.save.settings.difficulty], manualLmi: this.save.settings.difficulty !== 'practice', manualRigging: this.save.settings.difficulty !== 'practice', upgrades: isOwned(this.save, craneId) ? this.save.upgrades[craneId] ?? [] : [] }, livery: this.save.activeLivery });
   }
 
   // ------------------------------------------------------------------ vloot
@@ -1021,6 +1028,88 @@ export class App {
         spec.jibOptions.length > 1 ? sel('lmi-jib', 'Hulpgiek', spec.jibOptions.map((j, i) => [i, j > 0 ? `${j} m` : 'geen'] as [number, string]), cfg.jibIndex, (v) => (cfg.jibIndex = v)) : null,
         out,
         h('div', { class: 'row', style: 'margin-top:1em' }, h('button', { class: 'btn primary', 'data-testid': 'lmi-confirm', onclick: () => { sim.configureLmi(cfg); audio.ui('confirm'); close(); this.hud?.toast('Lastmomentbegrenzer ingesteld'); } }, 'Bevestigen'), h('button', { class: 'btn', onclick: close }, 'Annuleren')),
+      ),
+    );
+    this.openOverlay(panel);
+    preview();
+  }
+
+  /** Aanslagpaneel: gereedschap, sprongen, stroplengte en hijspunten kiezen; live hoek en belasting per sprong. */
+  private showRigPanel(sim: Simulation): void {
+    const load = sim.attachCandidate();
+    if (!load) return;
+    const t = load.type;
+    const loadT = t.massKg / 1000;
+    const nl = (v: number) => v.toFixed(2).replace('.', ',');
+    // voorstel als beginwaarde in de vorm (niet de beste keuze afdwingen: de speler kiest)
+    const sug = suggestRig(t);
+    const c: RigChoice = { gear: gearFor('round')[0], legs: sug.legs, length: 2, points: 'center' };
+    this.scene?.setPaused(true);
+    this.input.enabled = false;
+    const out = h('div', { class: 'lmi-preview rig-preview', 'data-testid': 'rig-preview' });
+    const gearSel = h('select', { id: 'rig-gear' }) as HTMLSelectElement;
+    const fillGear = (kind: GearKind) => {
+      gearSel.replaceChildren(...gearFor(kind).map((g, i) => h('option', { value: String(i), selected: g === c.gear }, g.label)));
+      if (!gearFor(kind).includes(c.gear)) c.gear = gearFor(kind)[0];
+      gearSel.value = String(gearFor(kind).indexOf(c.gear));
+    };
+    const select = <T extends string | number>(id: string, opts: [T, string][], val: T, on: (v: T) => void) => {
+      const s = h('select', { id }, ...opts.map(([v, l]) => h('option', { value: String(v), selected: v === val }, l))) as HTMLSelectElement;
+      s.addEventListener('change', () => {
+        on(opts.find(([v]) => String(v) === s.value)![0]);
+        preview();
+      });
+      return s;
+    };
+    const line = (label: string, el: Element) => h('label', { class: 'line' }, label, el);
+    const kindSel = select<GearKind>('rig-kind', [['round', 'Rondstroppen'], ['chain', 'Kettingen'], ['beam', 'Hijsbalk / juk']], c.gear.kind, (k) => {
+      fillGear(k);
+    });
+    gearSel.addEventListener('change', () => {
+      c.gear = gearFor(c.gear.kind)[Number(gearSel.value)];
+      preview();
+    });
+    fillGear(c.gear.kind);
+    const confirm = h('button', { class: 'btn primary', 'data-testid': 'rig-confirm' }, 'Aanslaan') as HTMLButtonElement;
+    const preview = () => {
+      c.gear = gearFor(kindSel.value as GearKind)[Number(gearSel.value)] ?? c.gear;
+      const rig = buildRig(t, c);
+      const probs = rigProblems(t, rig);
+      const deg = Math.round((rig.angle * 180) / Math.PI);
+      out.replaceChildren(
+        h('div', null, `Last ${nl(loadT)} t · hoek ${deg}° · ${c.gear.kind === 'beam' ? 'balk' : 'per sprong'} ${nl(legLoadT(rig, loadT))} t van ${String(rig.wll).replace('.', ',')} t`),
+        ...probs.map((p) => h('div', { class: 'warn' }, '⚠ ' + p)),
+      );
+      out.classList.toggle('danger', probs.length > 0);
+      confirm.textContent = probs.length ? 'Toch aanslaan' : 'Aanslaan';
+    };
+    const close = () => {
+      this.closeOverlay();
+      this.scene?.setPaused(false);
+      this.input.enabled = true;
+    };
+    confirm.onclick = () => {
+      const msg = sim.attachWith({ ...c });
+      audio.ui('confirm');
+      close();
+      if (msg) this.hud?.toast(msg);
+    };
+    const panel = h(
+      'div',
+      { class: 'screen dim' },
+      h(
+        'div',
+        { class: 'dialog panel lmi-panel', 'data-testid': 'rig-panel' },
+        h('h2', null, `Aanslaan — ${t.name}`),
+        h('p', { class: 'muted' }, `${t.massKg.toLocaleString('nl-NL')} kg · ${t.width} × ${t.depth} × ${t.height} m · hijspunten: ${t.liftPoints}${t.comOffsetX ? ` · zwaartepunt ${Math.abs(t.comOffsetX * 100).toFixed(0)} cm uit het midden` : ''}`),
+        line('Gereedschap', kindSel),
+        line('Uitvoering', gearSel),
+        line('Sprongen', select<2 | 4>('rig-legs', [[2, '2-sprong'], [4, '4-sprong (draagt als 3)']], c.legs, (v) => (c.legs = v))),
+        line('Stroplengte', select<number>('rig-length', SLING_LENGTHS.map((l) => [l, `${String(l).replace('.', ',')} m`] as [number, string]), c.length, (v) => (c.length = v))),
+        line('Hijspunten', select<PointMode>('rig-points', [['center', 'Midden van de last'], ['cog', 'Boven het zwaartepunt']], c.points, (v) => (c.points = v))),
+        h('p', { class: 'muted small' }, `Vuistregel: stropshoek hoogstens ${Math.round((MAX_SLING_ANGLE * 180) / Math.PI)}°; hoe platter, hoe zwaarder elke sprong belast wordt (G / n·cos α).`),
+        out,
+        h('div', { class: 'row', style: 'margin-top:1em' }, confirm, h('button', { class: 'btn', onclick: close }, 'Annuleren')),
       ),
     );
     this.openOverlay(panel);

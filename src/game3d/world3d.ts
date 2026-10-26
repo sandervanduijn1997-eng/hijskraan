@@ -79,6 +79,8 @@ export class World3D {
   private rope: RopeMesh | null = null;
   /** Vier stroppen (buizen) van de haak naar de hijspunten van de last. */
   private slings: THREE.InstancedMesh;
+  /** Hijsbalk (alleen bij een aanslag met balk). */
+  private spreader: THREE.Mesh;
   private zones: ZoneMarker[] = [];
   private labels: HTMLElement[] = [];
   private fx = new Effects3D();
@@ -173,10 +175,14 @@ export class World3D {
     }
     this.hook = this.buildHookMeshes();
     // stroppen: vier rondstroppen (geel polyester) als buizen
-    this.slings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8, 1, true), new THREE.MeshStandardMaterial({ color: 0xe0b020, roughness: 0.8 }), 4);
+    this.slings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8, 1, true), new THREE.MeshStandardMaterial({ color: 0xe0b020, roughness: 0.8 }), 6);
     this.slings.frustumCulled = false;
     this.slings.castShadow = true;
     this.scene.add(this.slings);
+    this.spreader = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xf2b705, roughness: 0.55, metalness: 0.3 }));
+    this.spreader.castShadow = true;
+    this.spreader.visible = false;
+    this.scene.add(this.spreader);
     this.scene.add(this.fx.root);
 
     for (const z of m.zones) {
@@ -433,19 +439,40 @@ export class World3D {
       this.hook.quaternion.copy(p.q);
       const hp = toWorld(p, b.apex.x, b.apex.y - sim.hookH);
       const topY = b.boxOffset.y + b.halfH;
-      const dz = Math.min(b.depth, 6) * 0.4;
-      const sr = 0.025 + 0.01 * Math.cbrt(b.mass / 1000);
+      const rig = sim.rig;
+      const chain = rig?.choice?.gear.kind === 'chain';
+      const sr = (chain ? 0.018 : 0.025) + 0.01 * Math.cbrt(b.mass / 1000);
+      (this.slings.material as THREE.MeshStandardMaterial).color.setHex(rig?.color ?? 0xe0b020);
+      (this.slings.material as THREE.MeshStandardMaterial).metalness = chain ? 0.8 : 0;
       let k = 0;
       const m4 = new THREE.Matrix4();
-      for (const lx of [-b.halfW * 0.8, b.halfW * 0.8]) {
-        for (const z of [-dz, dz]) {
-          const w = toWorld(p, b.boxOffset.x + lx, topY, z);
-          const dir = w.clone().sub(hp);
-          const len = Math.max(1e-3, dir.length());
-          m4.compose(hp.clone().add(w).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.multiplyScalar(1 / len)), new THREE.Vector3(sr, len, sr));
-          this.slings.setMatrixAt(k++, m4);
-        }
+      const seg = (from: THREE.Vector3, to: THREE.Vector3) => {
+        const dir = to.clone().sub(from);
+        const len = Math.max(1e-3, dir.length());
+        m4.compose(from.clone().add(to).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.multiplyScalar(1 / len)), new THREE.Vector3(sr, len, sr));
+        this.slings.setMatrixAt(k++, m4);
+      };
+      const pts = rig?.points ?? [];
+      if (rig?.choice?.gear.kind === 'beam') {
+        // hijsbalk boven de last: verticale sprongen eronder, twee topstroppen naar de haak
+        const by = topY + rig.choice.length;
+        const xs = pts.map((q) => q.x);
+        const x0 = Math.min(...xs);
+        const x1 = Math.max(...xs);
+        const bl = Math.max(0.6, x1 - x0 + 0.3);
+        for (const q of pts) seg(toWorld(p, b.boxOffset.x + q.x, by, q.z), toWorld(p, b.boxOffset.x + q.x, topY, q.z));
+        seg(hp, toWorld(p, b.boxOffset.x + x0, by, 0));
+        seg(hp, toWorld(p, b.boxOffset.x + x1, by, 0));
+        this.spreader.position.copy(toWorld(p, b.boxOffset.x + (x0 + x1) / 2, by, 0));
+        this.spreader.quaternion.copy(p.q);
+        const bh = 0.18 + 0.05 * Math.cbrt(b.mass / 1000);
+        this.spreader.scale.set(bl, bh, bh * 0.8);
+        this.spreader.visible = true;
+      } else {
+        for (const q of pts) seg(hp, toWorld(p, b.boxOffset.x + q.x, topY, q.z));
+        this.spreader.visible = false;
       }
+      this.slings.count = k;
       this.slings.instanceMatrix.needsUpdate = true;
       this.slings.visible = true;
     } else {
@@ -455,6 +482,7 @@ export class World3D {
       this.hook.position.copy(p.pos);
       this.hook.quaternion.copy(p.q);
       this.slings.visible = false;
+      this.spreader.visible = false;
     }
     // kabel: werkelijke lengte (doorhang als hij slap is) en zijdelingse snelheid van de last t.o.v. de giekpunt
     const rb = sim.ropeBody;
