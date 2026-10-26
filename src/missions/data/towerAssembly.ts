@@ -76,6 +76,23 @@ export function withTowerAssembly(m: MissionDef): MissionDef {
   };
 }
 
+/**
+ * Torenkraanmissie waarbij de kraan er al staat (na missie 12): direct met de opdracht beginnen.
+ * Opnieuw zelf opbouwen kan in de planning en levert bonus-XP op (zie withOptionalAssembly).
+ */
+export function towerStanding(m: MissionDef): MissionDef {
+  return { ...m, assemblyOptional: true, crane: { ...m.crane, preassembled: true } };
+}
+
+/** Bonus-XP voor zelf opbouwen. */
+export const ASSEMBLY_XP_BONUS = 0.5;
+
+/** De missie met de volledige montage (de speler koos zelf opbouwen in de planning). */
+export function withOptionalAssembly(m: MissionDef): MissionDef {
+  const a = withTowerAssembly({ ...m, crane: { ...m.crane, preassembled: false } });
+  return { ...a, assemblyOptional: false, reward: { ...a.reward, xp: Math.round(a.reward.xp * (1 + ASSEMBLY_XP_BONUS)) } };
+}
+
 function towerTask(loadId: string, zoneId: string, label: string, part: 'mast' | 'slewingUnit' | 'towerHead' | 'counterJib' | 'jib' | 'ballast', hold?: number): TaskDef {
   return { type: 'deliver', loadId, zoneId, label, inOrder: true, hold, effect: { type: 'towerPart', part } };
 }

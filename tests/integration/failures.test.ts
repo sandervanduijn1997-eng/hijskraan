@@ -1,3 +1,4 @@
+import { withOptionalAssembly } from '../../src/missions/data/towerAssembly';
 import { describe, expect, it } from 'vitest';
 import { getMission } from '../../src/missions/data/index';
 import { practiceMission } from '../../src/missions/data/challenges';
@@ -199,7 +200,7 @@ describe('torenkraan monteren met een hulpkraan', () => {
   });
 
   it('loslaten van B pauzeert het klimmen', () => {
-    const sim = new Simulation({ mission: getMission('m13')! });
+    const sim = new Simulation({ mission: withOptionalAssembly(getMission('m13')!) });
     finishAssembly(sim);
     run(sim, 3, () => emptyInput(), () => sim.spec.cfg.id === 'tc160');
     run(sim, 10, () => { const i = emptyInput(); i.setupHold = true; return i; });

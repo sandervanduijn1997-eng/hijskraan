@@ -170,6 +170,8 @@ export interface MissionDef {
   zones: ZoneDef[];
   /** Geregisseerde les met een instructeur (alleen in de carrière). */
   lesson?: LessonId;
+  /** Torenkraan staat er al; in de planning kan de speler kiezen voor zelf opbouwen (bonus-XP). */
+  assemblyOptional?: boolean;
   /** Kraanmatten bij de start (standaard houten matten 1,2 m). */
   mats?: MatId;
   /** Leven op de bouwplaats; standaard volgens de omgeving. workers: 0 = niemand. */

@@ -1,4 +1,4 @@
-import { withTowerAssembly } from './towerAssembly';
+import { towerStanding, withTowerAssembly } from './towerAssembly';
 import { box, building, ceiling, fence, truck, zone } from './builders';
 import type { MissionDef } from './types';
 
@@ -224,7 +224,7 @@ export const CHAPTER_3: MissionDef[] = [
     wind: { base: 4, gust: 0.4, direction: 1 }, parTime: 200, maxDamage: 30, requirements: { maxSwayDeg: 3 }, bounds: { minX: -30, maxX: 70 },
     reward: { money: 1800, xp: 320 },
   }),
-  withTowerAssembly({
+  towerStanding({
     id: 'm13', number: 13, chapter: 3, title: 'Materiaal op hoogte',
     briefing: 'Lever drie ladingen bouwmateriaal af op drie verschillende verdiepingen van het terrasgebouw.',
     hint: 'De capaciteit van een torenkraan neemt af naarmate de loopkat verder naar buiten staat. Check de belasting.',
@@ -249,7 +249,7 @@ export const CHAPTER_3: MissionDef[] = [
     wind: { base: 4, gust: 0.5, direction: -1 }, parTime: 420, maxDamage: 30, requirements: { maxSwayDeg: 5 }, bounds: { minX: -30, maxX: 70 },
     reward: { money: 2000, xp: 350 },
   }),
-  withTowerAssembly({
+  towerStanding({
     id: 'm14', number: 14, chapter: 3, title: 'Wind op de bouwplaats',
     briefing: 'Plaats het brede gevelpaneel op de verdiepingsvloer, vlak voor de hoge gevel. De wind wisselt van richting en sterkte.',
     hint: 'Een groot paneel vangt veel wind. Wacht een rustig moment af en blijf onder de 12 m/s.',
@@ -262,7 +262,7 @@ export const CHAPTER_3: MissionDef[] = [
     wind: { base: 7, gust: 0.55, direction: 1, variable: true, cross: 0.25 }, parTime: 260, maxDamage: 20, requirements: { maxSwayDeg: 6 }, bounds: { minX: -30, maxX: 70 },
     reward: { money: 2400, xp: 400 },
   }),
-  withTowerAssembly({
+  towerStanding({
     id: 'm15', number: 15, chapter: 3, title: 'De top van de toren',
     briefing: 'Plaats het constructie-element op het montagepunt bovenop de liftkern. Tolerantie: 15 centimeter.',
     hint: 'Gebruik precisiebediening op de laatste meters. Een korte kabel slingert sneller maar minder ver.',

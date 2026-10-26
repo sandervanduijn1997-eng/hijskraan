@@ -8,6 +8,7 @@ import type { LmiSetup } from '../cranes/models/lmi';
 import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
 import type { GearKind, PointMode, RigChoice } from '../sim/rigging';
 import { LessonRunner } from '../sim/lesson';
+import { ASSEMBLY_XP_BONUS, withOptionalAssembly } from '../missions/data/towerAssembly';
 import { Telemetry, summarize } from '../telemetry/telemetry';
 import { MAX_SLING_ANGLE, SLING_LENGTHS, buildRig, gearFor, legLoadT, rigProblems, suggestRig } from '../sim/rigging';
 import { resolveCrane } from '../cranes/models/craneSpec';
@@ -52,6 +53,8 @@ interface PlanChoice {
   boom: number;
   jib: number;
   difficulty: DifficultyId;
+  /** Torenkraan zelf opbouwen (alleen bij missies waar dat optioneel is). */
+  assemble?: boolean;
 }
 
 const TOWER_PART_DONE: Record<TowerPartKind, string> = {
@@ -179,8 +182,9 @@ export class App {
     audio.stopMusic();
   }
 
-  startMission(m: MissionDef, p: PlanChoice): void {
+  startMission(m0: MissionDef, p: PlanChoice): void {
     this.plan = p;
+    const m = m0.assemblyOptional && p.assemble ? withOptionalAssembly(m0) : m0;
     const ups = this.save.upgrades[p.craneId] ?? [];
     this.startPlay({
       mode: 'career',
@@ -648,6 +652,7 @@ export class App {
           plan.chooseCounterweight && spec.counterweights.length > 1 ? choiceRow('Contragewicht', spec.counterweights.map((c, i) => ({ label: c.label, sel: p.cw === i, on: () => { p.cw = i; } }))) : h('div', { class: 'muted', style: 'font-size:.85em;margin-bottom:.5em' }, `Contragewicht: ${spec.counterweights[p.cw]?.label ?? '—'} (vast voor deze opdracht)`),
           plan.chooseBoom && spec.boomOptions.length > 1 ? choiceRow('Hoofdgiek (vakwerk)', spec.boomOptions.map((L, i) => ({ label: `${L} m`, sel: p.boom === i, on: () => { p.boom = i; } }))) : null,
           (plan.chooseBoom || plan.chooseJib) && spec.jibOptions.length > 1 ? choiceRow('Hulpgiek', spec.jibOptions.map((L, i) => ({ label: L === 0 ? 'geen' : `${L} m`, sel: p.jib === i, on: () => { p.jib = i; } }))) : null,
+          m.assemblyOptional ? choiceRow(`Torenkraan (staat er al sinds missie 12)`, [{ label: 'Direct beginnen', sel: !p.assemble, on: () => { p.assemble = false; } }, { label: `Zelf opbouwen (+${Math.round(ASSEMBLY_XP_BONUS * 100)} % XP)`, sel: !!p.assemble, on: () => { p.assemble = true; } }]) : null,
           choiceRow('Moeilijkheidsgraad', (Object.keys(DIFFICULTIES) as DifficultyId[]).map((d) => ({ label: DIFFICULTIES[d].label, sel: p.difficulty === d, on: () => { p.difficulty = d; this.save.settings.difficulty = d; this.persist(); } }))),
           h('div', { class: 'muted', style: 'font-size:.85em' }, DIFFICULTIES[p.difficulty].description),
           h('h3', { style: 'margin-top:1em' }, `Lastdiagram (t) — ${spec.counterweights[p.cw]?.label ?? ''} ${spec.gb.footprintOutriggers ? 'op stempels' : ''}, in lijn met onderwagen`),
@@ -730,7 +735,7 @@ export class App {
             { class: 'row', style: 'margin-top:1.2em' },
             next && isMissionUnlocked(this.save, next) ? h('button', { class: 'btn primary', onclick: () => { this.input.enabled = true; this.closeOverlay(); this.showPlanning(next); }, 'data-testid': 'btn-next' }, 'Volgende opdracht →') : null,
             h('button', { class: `btn${next ? '' : ' primary'}`, onclick: () => { this.input.enabled = true; this.restart(); }, 'data-testid': 'btn-retry' }, '↻ Opnieuw'),
-            mode === 'career' ? h('button', { class: 'btn', onclick: () => { this.input.enabled = true; this.closeOverlay(); this.showPlanning(m, this.plan ?? undefined); } }, 'Planning') : null,
+            mode === 'career' ? h('button', { class: 'btn', onclick: () => { this.input.enabled = true; this.closeOverlay(); this.showPlanning(MISSIONS.find((x) => x.id === m.id) ?? m, this.plan ?? undefined); } }, 'Planning') : null,
             h('button', { class: 'btn', onclick: () => { this.input.enabled = true; this.backToMenu(); if (mode === 'career') this.showCareer(); } }, mode === 'career' ? 'Carrière' : 'Menu'),
           ),
         ),
