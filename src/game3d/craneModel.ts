@@ -9,6 +9,8 @@ import { beamMesh, box, cylinder, mat, placeBetween, placeCylinderBetween, shade
 import { boomSectionGeometry, brandOf, decal, mesh, profile, warningStripes } from './parts';
 import { ballast, paint, steel, surface } from './realism';
 import { buildCab, ladder, railing, workLight } from './cabs';
+import { hoistWinch, teleFoot, teleHead } from './heroParts';
+import { ropeTexture } from './ropeMesh';
 
 export interface Livery {
   body: number;
@@ -50,6 +52,11 @@ export class CraneModel {
   /** Kragen met slijtstrips aan het eind van elk telescoopdeel. */
   private collars: THREE.Mesh[] = [];
   private boomHead: THREE.Group | null = null;
+  /** Hero-details telescoopkraan: giekvoet, windmeter, lier en lierkabel. */
+  private boomFoot: THREE.Group | null = null;
+  private anemometer: THREE.Object3D | null = null;
+  private winch: { drum: THREE.Object3D; radius: number; pos: THREE.Vector3; lastRope: number } | null = null;
+  private hoistRope: THREE.Mesh | null = null;
   private ballast: THREE.Mesh[] = [];
   private mastSections: THREE.Object3D[] = [];
   private trolley: THREE.Mesh | null = null;
@@ -473,13 +480,19 @@ export class CraneModel {
         s.add(col);
         this.collars.push(col);
       }
-      // giekkop met kabelschijven
-      const head = new THREE.Group();
-      head.add(box(1.4, 0.9, 0.9, P, -0.5, 0, 0));
-      for (const z of [-0.28, 0, 0.28]) head.add(mesh(cylGeo(0.42, 0.12), steel(0x9aa0a6, 0.35)).rotateX(Math.PI / 2).translateY(z));
-      for (const z of [-0.42, 0.42]) head.add(box(1.0, 1.0, 0.06, P, 0, 0, z));
+      // giekkop: geprofileerde zijplaten, schijven met flenzen, windmeter, lamp en hijsendschakelaar
+      const head = teleHead(this.liv.boom, night, gb.hookMassKg > 3000 ? 5 : 4);
       s.add(head);
       this.boomHead = head;
+      this.anemometer = head.getObjectByName('anemometer') ?? null;
+      // hijslier achter op de bovenwagen, kabel naar de giekkop
+      const w = hoistWinch(ropeTexture());
+      w.group.position.set(xa + 0.9, top + 0.55, 0);
+      s.add(w.group);
+      this.winch = { drum: w.drum, radius: w.radius, pos: new THREE.Vector3(xa + 0.9, top + 0.55 + w.radius, 0), lastRope: -1 };
+      const hr = mesh(new THREE.CylinderGeometry(1, 1, 1, 6), steel(0x6a6f74, 0.4));
+      s.add(hr);
+      this.hoistRope = hr;
       // hefcilinder: geverfde cilinderbuis en blanke zuigerstang
       const c0 = cylinder(1, 1, paint(DARK, { gloss: 0.5, worn: false }));
       const c1 = cylinder(1, 1, steel(0xe6e9ec, 0.08));
@@ -590,8 +603,33 @@ export class CraneModel {
       this.sections[j].visible = false;
       if (this.collars[j]) this.collars[j].visible = false;
     }
-    // hefcilinder
     const th = g.displayBoomAngle;
+    // giekvoet (pas bij de eerste update: dan is de breedte van het basisdeel bekend)
+    const seg0 = segs.find((x) => x.kind === 'boom' || x.kind === 'boomSection');
+    if (!this.boomFoot && seg0 && this.winch) {
+      this.boomFoot = teleFoot(seg0.width, brandOf(this.spec.cfg.name).brand);
+      this.slew.add(this.boomFoot);
+    }
+    if (this.boomFoot && seg0) {
+      this.boomFoot.position.set(seg0.u0, seg0.y0, 0);
+      this.boomFoot.rotation.z = th;
+    }
+    // lier draait mee met het vieren en hijsen; windmeter draait in de wind
+    if (this.winch) {
+      const w = this.winch;
+      if (w.lastRope >= 0) w.drum.rotation.z -= (s.ropeLength - w.lastRope) / w.radius;
+      w.lastRope = s.ropeLength;
+      if (this.hoistRope && this.boomHead) {
+        const c = Math.cos(th);
+        const sn = Math.sin(th);
+        const lx = -0.55;
+        const ly = 0.82;
+        const end = { x: g.tipU + lx * c - ly * sn, y: g.tipY + 0.1 + lx * sn + ly * c, z: 0 };
+        placeCylinderBetween(this.hoistRope, w.pos, end, 0.011);
+      }
+    }
+    if (this.anemometer) this.anemometer.rotation.y = time * 6;
+    // hefcilinder
     const base = { x: gb.pivotU + 1.6, y: h + 0.2, z: 0 };
     const at = 0.42 * gb.boomMin;
     const tgt = { x: gb.pivotU + at * Math.cos(th), y: gb.pivotHeight + at * Math.sin(th) - 0.4, z: 0 };

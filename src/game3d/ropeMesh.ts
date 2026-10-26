@@ -8,6 +8,10 @@ import * as THREE from 'three';
 
 let wireTex: THREE.Texture | null = null;
 /** Gedraaide strengen: schuine lichte en donkere banen (wordt langs de kabel herhaald). */
+export function ropeTexture(): THREE.Texture {
+  return wireTexture();
+}
+
 function wireTexture(): THREE.Texture {
   if (wireTex) return wireTex;
   const c = document.createElement('canvas');
