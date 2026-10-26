@@ -93,7 +93,7 @@ export class Hud {
         'div',
         { class: 'hud-data box' },
         h('h4', null, 'Lastmomentbegrenzer'),
-        h('div', { class: 'dgrid' }, ...row('Lastgewicht', 'load'), ...row('Toegestaan', 'cap'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Werkstraal', 'radius'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres')),
+        h('div', { class: 'dgrid' }, ...row('Toegestaan', 'cap'), ...row('Werkstraal', 'radius'), ...row('Lastgewicht', 'load'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres')),
         h(
           'div',
           { class: 'lmi' },
@@ -110,10 +110,10 @@ export class Hud {
       h(
         'div',
         { class: 'hud-side box' },
-        h('h4', null, 'Plattegrond (bovenaanzicht)'),
+        h('h4', { class: 'plan-title' }, 'Plattegrond (bovenaanzicht)'),
         this.plan,
         h('div', { class: 'sway' }, h('span', null, 'Slinger'), h('div', { class: 'dial' }, (this.el.needle = h('div', { class: 'needle' }))), E('sway')),
-        n > 0 ? h('div', null, h('h4', { style: 'margin-top:.6em' }, 'Stempels'), outr, E('support', 'muted')) : null,
+        n > 0 ? h('div', { class: 'outriggers-wrap' }, h('h4', { style: 'margin-top:.6em' }, 'Stempels'), outr, E('support', 'muted')) : null,
         h('div', { style: 'margin-top:.4em;font-size:.8em' }, h('span', { class: 'muted' }, 'Ondergrond: '), E('ground')),
       ),
       (this.el.warns = h('div', { class: 'hud-warn', 'data-testid': 'warnings' })),
@@ -144,6 +144,10 @@ export class Hud {
     const g = sim.geom;
     const gb = sim.spec.gb;
     const kind = sim.spec.cfg.kind;
+    // lagen: LMI volledig met een last aan de haak; plattegrond en stempels bij het opstellen
+    const setupFocus = ctx.outriggerMode || sim.outriggerAuto.outriggerAuto !== 'none' || (gb.outriggerCount > 0 && sim.support.mode !== 'outriggers' && gb.setupType !== 'selfErect') || ctx.overview;
+    this.root.classList.toggle('has-load', !!sim.attached);
+    this.root.classList.toggle('setup-focus', setupFocus);
     const sig = sim.tasks.map((t) => t.status).join(',');
     if (sig !== this.taskSig) {
       this.taskSig = sig;

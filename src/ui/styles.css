@@ -142,6 +142,19 @@ table.chart td.bad { color: #ff8f84; }
 .lmi .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; opacity: 0.6; }
 .lmi .row2 { display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 0.2em; font-family: var(--mono); }
 .hud-side { position: absolute; right: 1em; bottom: 1em; width: 17em; padding: 0.8em 1em; }
+/* HUD in lagen: het LMI-scherm als cabinedisplay, alleen volledig met een last aan de haak */
+.hud { font-size: 1.08em; }
+.hud-data.box { background: #0d1410; border: 2px solid #2c3a30; box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.8), 0 6px 20px rgba(0, 0, 0, 0.4); color: #b6f5c8; }
+.hud-data h4 { color: #7ff0a8; font-family: var(--mono); letter-spacing: 0.14em; }
+.hud-data .dgrid .k { color: #6fa883; }
+.hud-data .dgrid .v { color: #d9ffe5; text-shadow: 0 0 6px rgba(127, 240, 168, 0.35); }
+.hud-data .lmi .bar { background: #18231c; }
+.hud:not(.has-load) .hud-data .dgrid > :nth-child(n + 5) { display: none; }
+.hud:not(.has-load) .hud-data .lmi { display: none; }
+.hud:not(.has-load) .hud-data::after { content: 'Geen last aan de haak'; display: block; margin-top: 0.4em; font-family: var(--mono); font-size: 0.75em; color: #6fa883; }
+.hud:not(.setup-focus) .hud-side .outriggers-wrap { display: none; }
+.hud:not(.setup-focus) .hud-side .planview { display: none; }
+.hud:not(.setup-focus) .hud-side h4.plan-title { display: none; }
 .planview { width: 100%; height: 9em; display: block; background: #15181c; border-radius: 4px; }
 .outriggers { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.3em; margin-top: 0.5em; font-size: 0.78em; }
 .outriggers div { padding: 0.25em 0.4em; border-radius: 3px; background: #2b2f36; text-align: center; }
