@@ -48,6 +48,8 @@ Toetsen lopen op: kort tikken geeft 15 % snelheid, vasthouden loopt in ca. 1 s o
 
 **T** = aanslaan. Op Normaal en Realistisch kies je zelf het hijsgereedschap (rondstroppen met kleurcode, kettingen klasse 8 of een hijsbalk), het aantal sprongen, de stroplengte en de hijspunten. Het paneel toont de stropshoek en de belasting per sprong (G / n·cos α; een 4-sprong draagt als 3). Te korte stroppen (meer dan 60°) of te licht gereedschap zijn een overtreding; boven de breukgrens breekt de strop en valt de last. Hijspunten in het midden van een excentrische last laten hem scheef hangen.
 
+De bouwplaats leeft: bouwvakkers lopen en werken buiten de afgezette draaicirkel, een vrachtwagen rijdt aan en af (en wacht als er een last boven de rijstrook hangt). Mensen lopen weg onder een naderende last; draai je een last toch boven iemand, dan roept de signaalgever 'Stop!' en telt dat als veiligheidsovertreding. Op Realistisch wordt het werk dan stilgelegd.
+
 Algemeen: **V** camera volgen/cabine · **Shift** precisie · **T** aanslaan/afkoppelen · **O** stempelmodus (W/S schuiven, E/Q vijzels, 1–4 kiezen, 0 = alle) · **P** automatische stempelprocedure · **B** (vasthouden) opbouwprocedure · **Spatie** pauze · **Esc** menu · **+/−/muiswiel** zoom · **Tab** overzicht · **C** camera herstellen · **H** claxon · **F1** bedieningsoverzicht.
 
 ## Weergave

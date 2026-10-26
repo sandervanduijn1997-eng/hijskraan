@@ -24,7 +24,7 @@ import { buildColliders } from '../missions/runtime/buildWorld';
 import type { ScoreBreakdown, ScoreMetrics } from '../missions/runtime/scoring';
 import { computeScore, emptyMetrics } from '../missions/runtime/scoring';
 import type { PlacementCheck } from '../missions/validation/placement';
-import { checkPlacement } from '../missions/validation/placement';
+import { checkPlacement, loadBottomCenter } from '../missions/validation/placement';
 import { createRope, ropeAngles } from '../physics/cable/rope';
 import type { RopeState } from '../physics/cable/rope';
 import type { Collider } from '../physics/collision/colliders';
@@ -45,6 +45,8 @@ import { DEG, RAD, clamp, hashString } from '../utils/math';
 import type { DifficultyProfile } from './difficulty';
 import { DIFFICULTIES } from './difficulty';
 import type { Rig, RigChoice } from './rigging';
+import { SiteLife, WORKERS_BY_ENV } from './site';
+import type { Danger } from './site';
 import { BREAK_FACTOR, MAX_SLING_ANGLE, buildRig, legLoadT, rigUtilisation, standardRig } from './rigging';
 import type { Warning } from './warnings';
 import { WarningTracker } from './warnings';
@@ -79,6 +81,7 @@ export type SimEvent =
   | { type: 'fail'; reason: string }
   | { type: 'lmiCutoff' }
   | { type: 'slingBreak' }
+  | { type: 'overPeople' }
   | { type: 'towerPart'; part: TowerPartKind }
   | { type: 'craneSwitch' }
   | { type: 'warning'; warning: Warning };
@@ -161,6 +164,8 @@ export class Simulation {
   rig: Rig | null = null;
   /** Benutting van het hijsgereedschap (1 = op de werklast). */
   rigPct = 0;
+  /** Bouwvakkers en vrachtwagen (null = lege omgeving). */
+  site: SiteLife | null = null;
   private lmiViolationLatched = false;
   colliders: Collider[];
   readonly missionColliders: Collider[];
@@ -271,6 +276,8 @@ export class Simulation {
       const cb = this.world.addBody(sp.id, body);
       this.loads.push({ id: sp.id, type, cb, status: 'resting', damage: 0 });
     }
+
+    this.site = this.buildSite(opt.mission.site?.workers);
 
     const startAttached = opt.mission.loads.find((l) => l.attached);
     if (startAttached) {
@@ -697,6 +704,7 @@ export class Simulation {
     updateTilt(this.crane, this.stability?.tippingRatio ?? 0, dt, this.difficulty.tipping && !this.spec.gb.anchored);
 
     this.processImpacts(ctl);
+    this.updateSite(dt);
     this.measure(dt);
     this.evaluateWarnings(ctl);
     for (const w of this.warnings.end(dt)) this.events.push({ type: 'warning', warning: w });
@@ -830,6 +838,57 @@ export class Simulation {
     } else this.liftSettle = 0;
   }
 
+  /** Bouwplaats opzetten: werkring rond de kraan, vrije plekken en een vrije rijstrook. */
+  private buildSite(workers?: number): SiteLife | null {
+    const count = workers ?? WORKERS_BY_ENV[this.mission.environment] ?? 0;
+    if (count <= 0) return null;
+    const cx = this.geom.slewX;
+    const cz = this.geom.slewZ;
+    const cw = this.spec.counterweights[this.crane.counterweightIndex];
+    const rMin = Math.max(6, (cw?.radius ?? 3) + 2.5);
+    const rMax = Math.max(rMin + 8, Math.min(30, this.spec.gb.boomMax * 0.8));
+    const blocked = (x: number, z: number, pad: number): boolean => {
+      for (const c of this.missionColliders) {
+        if (c.kind === 'ceiling' || c.maxY < 0.3 || c.minY > 2.4) continue;
+        if (x > c.minX - pad && x < c.maxX + pad && z > c.minZ - pad && z < c.maxZ + pad) return true;
+      }
+      for (const l of this.loads) {
+        const b = bodyBounds(l.cb.body);
+        if (x > b.minX - pad - 0.4 && x < b.maxX + pad + 0.4 && z > b.minZ - pad - 0.4 && z < b.maxZ + pad + 0.4) return true;
+      }
+      for (const zn of this.mission.zones) if (zn.y < 1 && Math.hypot(x - zn.x, z - (zn.z ?? 0)) < zn.tolerance + 2 + pad) return true;
+      return false;
+    };
+    const free = (x: number, z: number): boolean => Math.hypot(x - cx, z - cz) > rMin && !blocked(x, z, 0.3);
+    let laneZ: number | null = null;
+    for (const off of [rMin + 8, -(rMin + 8), rMin + 14, -(rMin + 14), rMin + 20, -(rMin + 20)]) {
+      let ok = true;
+      for (let x = cx - 70; x <= cx + 70 && ok; x += 2) if (blocked(x, cz + off, 2)) ok = false;
+      if (ok) {
+        laneZ = cz + off;
+        break;
+      }
+    }
+    return new SiteLife({ seed: this.seed, count, cx, cz, rMin, rMax, free, laneZ });
+  }
+
+  /** Mensen en vrachtwagen bijwerken; een last boven personen is een overtreding. */
+  private updateSite(dt: number): void {
+    if (!this.site) return;
+    let danger: Danger | null = null;
+    const l = this.attached;
+    if (l && this.loadLifted()) {
+      const bc = loadBottomCenter(l.cb.body);
+      danger = { x: bc.x, z: bc.z, half: Math.hypot(l.cb.body.halfW, l.cb.body.depth / 2), bottom: bc.y };
+    }
+    const v = this.site.update(dt, danger);
+    if (v > 0) {
+      this.metrics.safetyViolations += v;
+      this.events.push({ type: 'overPeople' });
+      if (this.difficulty.strictOutriggers) this.fail('Last boven personen gedraaid — het werk is stilgelegd.');
+    }
+  }
+
   /** Belasting van het hijsgereedschap; boven de breukgrens breekt een strop en valt de last. */
   private checkSlings(): void {
     const l = this.attached;
@@ -925,6 +984,7 @@ export class Simulation {
         this.metrics.safetyViolations++;
       }
     }
+    if (this.site?.peopleUnderLoad) W.raise('overPeople', 'critical', 'Last boven personen — stop!');
     if (this.attached && this.rig?.choice) {
       const rig = this.rig;
       if (this.rigPct > 100) W.raise('slingOverload', 'critical', `Hijsgereedschap overbelast: ${Math.round(this.rigPct)} % van de werklast`);

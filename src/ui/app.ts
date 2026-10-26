@@ -254,6 +254,12 @@ export class App {
         case 'slingBreak':
           audio.slingBreak(sim.hookPoint());
           break;
+        case 'overPeople':
+          // de signaalgever roept altijd, ook als zijn aanwijzingen uit staan
+          audio.radio();
+          this.hud?.radio('STOP! Mensen onder de last!');
+          if (this.save.settings.signalman !== 'text') speak('Stop! Mensen onder de last!');
+          break;
         case 'attach':
         case 'detach':
           audio.rigging(sim.attachedMassT() > 5, sim.hookPoint());

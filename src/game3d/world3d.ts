@@ -22,6 +22,7 @@ import { buildHook, buildLoad } from './loadModel';
 import { RopeMesh, ropeRadius } from './ropeMesh';
 import { DepthAid } from './depthAid';
 import { buildWorker, poseSignal } from './people';
+import { SiteLife3D } from './siteLife3d';
 import type { Worker } from './people';
 import { Signalman } from '../sim/signalman';
 import type { SignalCall } from '../sim/signalman';
@@ -81,6 +82,7 @@ export class World3D {
   private slings: THREE.InstancedMesh;
   /** Hijsbalk (alleen bij een aanslag met balk). */
   private spreader: THREE.Mesh;
+  private siteLife: SiteLife3D | null = null;
   private zones: ZoneMarker[] = [];
   private labels: HTMLElement[] = [];
   private fx = new Effects3D();
@@ -198,6 +200,10 @@ export class World3D {
       this.labels.push(el);
     }
 
+    if (this.sim.site) {
+      this.siteLife = new SiteLife3D(this.sim.site, this.sim, night);
+      this.scene.add(this.siteLife.root);
+    }
     this.depthAid = new DepthAid(labelRoot);
     this.scene.add(this.depthAid.root);
     this.signalFigure = buildWorker(0xffd21f, 0xffffff);
@@ -543,6 +549,7 @@ export class World3D {
     this.dome.position.copy(this.rig.camera.position);
     this.depthAid.update(sim, this.rig.camera, this.cfg.mode !== 'demo' && this.hooks.settings().depthAid !== false);
     this.updateSignalman(sim, t);
+    this.siteLife?.update(this.paused ? 0 : dt);
     // luisteraar = camera; in de cabine gedempt
     const camQ = this.rig.camera.quaternion;
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camQ);

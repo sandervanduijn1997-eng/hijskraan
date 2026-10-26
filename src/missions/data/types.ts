@@ -166,6 +166,8 @@ export interface MissionDef {
   assembly?: TowerAssemblyDef;
   loads: LoadSpawn[];
   zones: ZoneDef[];
+  /** Leven op de bouwplaats; standaard volgens de omgeving. workers: 0 = niemand. */
+  site?: { workers?: number };
   obstacles: ObstacleDef[];
   ground?: GroundZone[];
   groundFallback?: GroundType;
