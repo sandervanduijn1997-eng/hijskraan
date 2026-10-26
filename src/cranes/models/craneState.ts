@@ -40,6 +40,13 @@ export interface CraneState {
   hydPressure: number;
   /** Resterende tijd (s) dat het werktoerental (handgas) blijft staan. */
   rpmHold: number;
+  /** Doorbuiging van de giekpunt loodrecht op de giek (m, positief = omlaag) en de snelheid daarvan. */
+  boomDeflect: number;
+  boomDeflectVel: number;
+  /** Zijde van de kraanmatten onder de stempels (m), 0 = geen. */
+  matSide: number;
+  /** Hoe ver elke stempel in de grond is weggezakt (m). */
+  padSink: number[];
   fuelUsed: number;
 }
 
@@ -103,6 +110,10 @@ export function createCraneState(spec: ResolvedCrane, start: CraneStartConfig): 
     rpm: spec.cfg.kind === 'tower' ? 0 : 750,
     hydPressure: 0,
     rpmHold: 0,
+    boomDeflect: 0,
+    boomDeflectVel: 0,
+    matSide: 0,
+    padSink: [0, 0, 0, 0],
     fuelUsed: 0,
   };
 }
@@ -111,5 +122,6 @@ export const cloneCraneState = (s: CraneState): CraneState => ({
   ...s,
   outriggerBeam: [...s.outriggerBeam],
   outriggerJack: [...s.outriggerJack],
+  padSink: [...s.padSink],
   vel: { ...s.vel },
 });

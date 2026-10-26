@@ -29,6 +29,8 @@ interface Outrigger {
   beam: THREE.Mesh;
   jack: THREE.Mesh;
   pad: THREE.Mesh;
+  /** Kraanmat onder de stempelplaat. */
+  mat: THREE.Mesh;
 }
 
 /**
@@ -269,8 +271,10 @@ export class CraneModel {
       const beam = beamMesh(warningStripes());
       const jack = cylinder(0.12, 1, steel(0xd9dde1, 0.18));
       const pad = cylinder(0.55, 0.14, steel(0x3a3f45, 0.7));
-      c.add(beam, jack, pad);
-      this.outriggers.push({ beam, jack, pad });
+      const matM = box(1, 0.15, 1, mat(0x8a6a44, { rough: 0.95 }));
+      matM.visible = false;
+      c.add(beam, jack, pad, matM);
+      this.outriggers.push({ beam, jack, pad, mat: matM });
     }
   }
 
@@ -528,7 +532,16 @@ export class CraneModel {
       const zIn = pz > 0 ? 1.1 : -1.1;
       const beamY = cfg.carrier === 'selfErecting' ? 0.6 : 0.75 + lift;
       placeBetween(o.beam, { x: lx, y: beamY, z: zIn }, { x: lx, y: beamY, z: pz + (pz > 0 ? 0.25 : -0.25) }, 0.4, 0.5);
-      const padY = (1 - jack) * 0.45;
+      // kraanmat (alleen als de balk uitgeschoven is) en wegzakken in een te zachte ondergrond
+      const sink = s.padSink[i] ?? 0;
+      const matOn = s.matSide > 0 && (s.outriggerBeam[i] ?? 0) > 0.95;
+      o.mat.visible = matOn;
+      const matTop = matOn ? 0.15 : 0;
+      if (matOn) {
+        o.mat.scale.set(s.matSide, 1, s.matSide);
+        o.mat.position.set(lx, 0.075 - sink, pz);
+      }
+      const padY = (1 - jack) * 0.45 + matTop * jack - sink * jack;
       placeCylinderBetween(o.jack, { x: lx, y: padY + 0.1, z: pz }, { x: lx, y: beamY + 0.05, z: pz }, 0.12);
       o.pad.position.set(lx, padY + 0.06, pz);
     }

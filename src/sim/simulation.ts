@@ -6,6 +6,7 @@ import type { ControlResult } from '../cranes/controllers/craneController';
 import { outriggerPad, updateCrane, updateTilt } from '../cranes/controllers/craneController';
 import type { SupportState } from '../cranes/models/capacity';
 import { allowedCapacityT, stabilityMasses, supportState } from '../cranes/models/capacity';
+import { boomFrequency, staticDeflection } from '../cranes/models/boomFlex';
 import type { ResolvedCrane } from '../cranes/models/craneSpec';
 import { resolveCrane } from '../cranes/models/craneSpec';
 import type { CraneState } from '../cranes/models/craneState';
@@ -31,7 +32,9 @@ import type { Collider } from '../physics/collision/colliders';
 import type { ContactBody } from '../physics/collision/contacts';
 import { rangesOverlap, segmentIntersectsRect } from '../physics/collision/geometry';
 import { AIR_DENSITY, FIXED_DT, GRAVITY, SUBSTEPS } from '../physics/constants';
-import { groundFactorFor } from '../physics/ground';
+import { GROUND_LABEL, groundAt, groundFactorFor } from '../physics/ground';
+import type { MatId } from '../physics/stability/groundPressure';
+import { MATS, allowedPressure, bearingArea, matLabel, matSide, padLoadsT } from '../physics/stability/groundPressure';
 import type { RigidBody } from '../physics/load/rigidBody';
 import { apexWorld, bodyBounds, bodyTilt, createBoxBody, localToWorld, setBodyMass, wakeBody } from '../physics/load/rigidBody';
 import type { StabilityResult } from '../physics/stability/stability';
@@ -198,6 +201,11 @@ export class Simulation {
   stability: StabilityResult | null = null;
   support: SupportState;
   groundFactor = 1;
+  /** Kraanmatten onder de stempels, en per stempel: druk, toelaatbare druk (t/m²) en wegzakken (m). */
+  mats: MatId = 'timber';
+  padPressure: number[] = [];
+  padAllowed: number[] = [];
+  private sinkLatched = false;
   outcome: MissionOutcome = 'running';
   failReason = '';
   score: ScoreBreakdown | null = null;
@@ -242,6 +250,9 @@ export class Simulation {
     this.manualLmi = (opt.manualLmi ?? false) && hasLmiSetup(this.spec);
     this.parts = maxParts(this.spec);
     this.manualRigging = opt.manualRigging ?? false;
+    // standaard liggen houten kraanmatten onder de stempels (zoals elke kraan ze meeneemt)
+    this.mats = opt.mission.mats ?? 'timber';
+    this.crane.matSide = this.spec.gb.outriggerCount === 4 ? matSide(this.spec.gb.maxCapacityT, this.mats) : 0;
     this.lmi = this.manualLmi ? { ...autoLmi(this.spec, this.crane, this.parts), configured: false } : autoLmi(this.spec, this.crane, this.parts);
     this.prevTip = { ...this.geom.tip };
 
@@ -669,6 +680,7 @@ export class Simulation {
       if (!this.warnings.has('overload')) this.events.push({ type: 'lmiCutoff' });
     }
     this.refreshCraneColliders();
+    this.updateBoomDeflection(dt);
     this.geom = computeGeometry(this.spec, this.crane);
     if (this.crane.setupProgress < 1 && hasSetupProcedure(this.spec)) {
       // tijdens montage/opbouw viert de lier automatisch mee met de beweging van de giekpunt:
@@ -701,6 +713,7 @@ export class Simulation {
     else if (this.lmiPct >= 101 || rawPct >= 112 || this.loadPct >= 100) this.lmiLatched = true;
     else if (this.loadPct < 97 && this.lmiPct < 99) this.lmiLatched = false;
     this.computeStabilityModel();
+    this.updateGroundPressure(dt);
     updateTilt(this.crane, this.stability?.tippingRatio ?? 0, dt, this.difficulty.tipping && !this.spec.gb.anchored);
 
     this.processImpacts(ctl);
@@ -749,6 +762,65 @@ export class Simulation {
       slope: (this.mission.slopeDeg ?? 0) * DEG,
       windMoment: windOnBoom,
     });
+  }
+
+  /**
+   * Bodemdruk per stempel. Boven de toelaatbare druk zakt de stempel weg (sneller naarmate de
+   * overschrijding groter is). Op Normaal en Realistisch is 30 cm wegzakken het einde van de hijs.
+   */
+  private updateGroundPressure(dt: number): void {
+    const gb = this.spec.gb;
+    if (gb.outriggerCount !== 4 || this.support.mode === 'tires' || gb.anchored) {
+      this.padPressure = [];
+      this.padAllowed = [];
+      return;
+    }
+    const fp = this.support.footprint;
+    const loadT = this.attached ? Math.max(0, this.tensionF / GRAVITY / 1000) : this.hookMassKg / 1000;
+    const loads = padLoadsT({
+      masses: stabilityMasses(this.spec, this.crane),
+      slew: this.crane.slew,
+      boomT: this.geom.boomMassT,
+      boomCogRadius: this.geom.boomCogRadius,
+      loadT,
+      tipRadius: this.geom.tipU,
+      a: fp.a,
+      b: fp.b,
+    });
+    const area = bearingArea(gb.maxCapacityT, this.mats);
+    this.padPressure = loads.map((f) => f / area);
+    this.padAllowed = loads.map((_, i) => {
+      const g = groundAt(this.mission.ground ?? [], outriggerPad(this.spec, this.crane, i).x, this.mission.groundFallback);
+      return allowedPressure(g.type, Math.min(1, g.quality + this.spec.effects.groundBonus));
+    });
+    for (let i = 0; i < 4; i++) {
+      const ratio = this.padPressure[i] / this.padAllowed[i];
+      if (ratio > 1) this.crane.padSink[i] = Math.min(0.5, this.crane.padSink[i] + 0.04 * (ratio - 1) * dt);
+    }
+    const worst = Math.max(...this.padSink);
+    if (worst > 0.3 && !this.sinkLatched) {
+      this.sinkLatched = true;
+      this.metrics.safetyViolations++;
+      const i = this.padSink.indexOf(worst);
+      const g = groundAt(this.mission.ground ?? [], outriggerPad(this.spec, this.crane, i).x, this.mission.groundFallback);
+      if (this.difficulty.id !== 'practice') this.fail(`Stempel ${i + 1} zakte ${Math.round(worst * 100)} cm weg in de ${GROUND_LABEL[g.type]} — bodemdruk te hoog, gebruik kraanmatten.`);
+    }
+  }
+
+  get padSink(): number[] {
+    return this.crane.padSink;
+  }
+
+  /** Kraanmatten leggen of wisselen (alleen met de vijzels omhoog). */
+  cycleMats(): string {
+    if (this.spec.gb.outriggerCount !== 4) return 'Deze kraan staat niet op stempels.';
+    if (this.crane.outriggerJack.some((j) => j > 0.05)) return 'Eerst de vijzels omhoog — dan kunnen de matten eronder.';
+    const i = MATS.findIndex((m) => m.id === this.mats);
+    this.mats = MATS[(i + 1) % MATS.length].id;
+    this.crane.matSide = matSide(this.spec.gb.maxCapacityT, this.mats);
+    this.crane.padSink = [0, 0, 0, 0];
+    this.sinkLatched = false;
+    return `Onder de stempels: ${matLabel(this.spec.gb.maxCapacityT, this.mats)}`;
   }
 
   private loadById(id: string): LoadRuntime | undefined {
@@ -836,6 +908,25 @@ export class Simulation {
         m.peakLiftPct = Math.max(m.peakLiftPct, this.loadPct);
       }
     } else this.liftSettle = 0;
+  }
+
+  /**
+   * Doorbuiging en trillen van de giek: een veer-dempersysteem met de kabelkracht als belasting.
+   * Statische doorbuiging ≈ 1 % van de gieklengte × (L/30 m) bij een last op de grens van het lastdiagram;
+   * eigenfrequentie daalt met de lengte (lange giek = traag en ver doorbuigen). Weinig demping, zodat
+   * een ruk of het neerzetten van een last zichtbaar natrilt.
+   */
+  private updateBoomDeflection(dt: number): void {
+    const s = this.crane;
+    const kind = this.spec.cfg.kind;
+    if (kind !== 'telescopic' && kind !== 'lattice') return;
+    const tensionT = this.rope.slack ? 0 : this.rope.tension / GRAVITY / 1000;
+    const target = staticDeflection(this.geom.displayBoomLength, tensionT, allowedCapacityT(this.spec, s), this.geom.displayBoomAngle);
+    const w = 2 * Math.PI * boomFrequency(this.geom.displayBoomLength);
+    const zeta = 0.3;
+    const acc = w * w * (target - s.boomDeflect) - 2 * zeta * w * s.boomDeflectVel;
+    s.boomDeflectVel += acc * dt;
+    s.boomDeflect += s.boomDeflectVel * dt;
   }
 
   /** Bouwplaats opzetten: werkring rond de kraan, vrije plekken en een vrije rijstrook. */
@@ -986,6 +1077,19 @@ export class Simulation {
         this.groundViolationLatched = true;
         this.metrics.safetyViolations++;
       }
+    }
+    if (this.padPressure.length) {
+      let worst = 0;
+      let wi = 0;
+      for (let i = 0; i < this.padPressure.length; i++) {
+        const r = this.padPressure[i] / this.padAllowed[i];
+        if (r > worst) {
+          worst = r;
+          wi = i;
+        }
+      }
+      if (worst > 1) W.raise('groundPressure', 'critical', `Bodemdruk stempel ${wi + 1}: ${Math.round(this.padPressure[wi])} t/m² (toegestaan ${Math.round(this.padAllowed[wi])}) — stempel zakt weg`);
+      else if (worst > 0.85) W.raise('groundPressure', 'caution', `Bodemdruk stempel ${wi + 1} hoog: ${Math.round(worst * 100)} % van toegestaan`);
     }
     if (this.site?.peopleUnderLoad) W.raise('overPeople', 'critical', 'Last boven personen — stop!');
     if (this.attached && this.rig?.choice) {

@@ -6,6 +6,7 @@ export type WarningId =
   | 'lmiMismatch'
   | 'slingOverload'
   | 'overPeople'
+  | 'groundPressure'
   | 'slingAngle'
   | 'rigTilt'
   | 'overload'
@@ -37,6 +38,7 @@ const PRIORITY: Record<WarningId, number> = {
   lmiMismatch: 95,
   slingOverload: 92,
   overPeople: 97,
+  groundPressure: 88,
   slingAngle: 62,
   rigTilt: 42,
   lmiSetup: 30,

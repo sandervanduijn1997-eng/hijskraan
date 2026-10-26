@@ -43,7 +43,7 @@ const ACTION_LABELS: Record<ActionId, string> = {
   teleOut: 'Telescoop uit', teleIn: 'Telescoop in', trolleyOut: 'Loopkat naar buiten', trolleyIn: 'Loopkat naar binnen', knuckleUp: 'Knikarm omhoog', knuckleDown: 'Knikarm omlaag',
   knuckleTeleOut: 'Knikarm-telescoop uit', knuckleTeleIn: 'Knikarm-telescoop in', driveLeft: 'Rijden links', driveRight: 'Rijden rechts', precision: 'Precisiebediening',
   rigging: 'Aanslaan / afkoppelen', outriggerMode: 'Stempelmodus', outriggerAuto: 'Automatische stempelprocedure', setup: 'Opbouwprocedure (vasthouden)', pause: 'Pauze',
-  menu: 'Menu', zoomIn: 'Inzoomen', zoomOut: 'Uitzoomen', overview: 'Overzichtsmodus', cameraReset: 'Camera herstellen', cameraMode: 'Camera: volgen / cabine', horn: 'Claxon', help: 'Bedieningsoverzicht', lmi: 'Lastmomentbegrenzer instellen',
+  menu: 'Menu', zoomIn: 'Inzoomen', zoomOut: 'Uitzoomen', overview: 'Overzichtsmodus', cameraReset: 'Camera herstellen', cameraMode: 'Camera: volgen / cabine', horn: 'Claxon', help: 'Bedieningsoverzicht', lmi: 'Lastmomentbegrenzer instellen', mats: 'Kraanmatten leggen / wisselen',
 };
 
 interface PlanChoice {
@@ -349,6 +349,9 @@ export class App {
         break;
       case 'horn':
         audio.horn();
+        break;
+      case 'mats':
+        if (!this.scene?.paused) this.hud?.toast(sim.cycleMats());
         break;
       case 'lmi':
         if (sim.manualLmi && !this.scene?.paused) this.showLmiPanel(sim);
@@ -1020,7 +1023,7 @@ export class App {
       sec('Mobiele telescoopkraan / rupskraan', [[['boomUp', 'boomDown'], 'Giek omhoog / omlaag'], [['slewLeft', 'slewRight'], 'Bovenwagen draaien'], [['hoistDown', 'hoistUp'], 'Kabel vieren / hijsen'], [['teleOut', 'teleIn'], 'Telescoop uit / in'], [['driveLeft', 'driveRight'], 'Rijden (stempels in)'], [['precision'], 'Precisiebediening (vasthouden)']]),
       sec('Torenkraan', [[['slewLeft', 'slewRight'], 'Giek draaien'], [['trolleyOut', 'trolleyIn'], 'Loopkat naar buiten / binnen'], [['hoistDown', 'hoistUp'], 'Vieren / hijsen'], [['setup'], 'Opbouwprocedure (zelfopbouw)']]),
       sec('Knikarmkraan', [[['boomUp', 'boomDown'], 'Hoofdarm'], [['knuckleUp', 'knuckleDown'], 'Knikarm'], [['knuckleTeleOut', 'knuckleTeleIn'], 'Telescoopsegmenten'], [['hoistDown', 'hoistUp'], 'Lier'], [['slewLeft', 'slewRight'], 'Kolom draaien']]),
-      sec('Stempels', [[['outriggerMode'], 'Stempelmodus aan/uit'], [['boomUp', 'boomDown'], 'Geselecteerde stempel uit / in'], [['hoistUp', 'hoistDown'], 'Vijzel neer / op'], [['outriggerAuto'], 'Automatische procedure']]),
+      sec('Stempels', [[['outriggerMode'], 'Stempelmodus aan/uit'], [['boomUp', 'boomDown'], 'Geselecteerde stempel uit / in'], [['hoistUp', 'hoistDown'], 'Vijzel neer / op'], [['outriggerAuto'], 'Automatische procedure'], [['mats'], 'Kraanmatten (vijzels omhoog)']]),
       sec('Algemeen & camera', [[['rigging'], 'Last aanslaan / afkoppelen'], [['pause'], 'Pauze'], [['menu'], 'Menu'], [['zoomIn', 'zoomOut'], 'Zoomen (ook muiswiel)'], [['overview'], 'Overzichtsmodus'], [['cameraMode'], 'Volgcamera / cabinezicht'], [['cameraReset'], 'Camera herstellen (ook dubbelklik)'], [['horn'], 'Claxon']]),
       h('section', { class: 'panel' }, h('h3', null, 'Muis'), h('div', { class: 'bind' }, h('span', null, 'Camera draaien'), h('span', null, 'linkermuisknop slepen')), h('div', { class: 'bind' }, h('span', null, 'Camera verschuiven'), h('span', null, 'rechtermuisknop slepen')), h('div', { class: 'bind' }, h('span', null, 'Zoomen'), h('span', null, 'muiswiel'))),
       h('section', { class: 'panel' }, h('h3', null, 'Werkwijze'), h('ol', { style: 'margin:0;padding-left:1.2em;line-height:1.5' },

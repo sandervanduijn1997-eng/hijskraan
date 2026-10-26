@@ -1,3 +1,4 @@
+import type { MatId } from '../../physics/stability/groundPressure';
 import type { LessonId } from '../../sim/lesson';
 import type { CraneId, LicenseId } from '../../cranes/config/types';
 import type { CraneStartConfig } from '../../cranes/models/craneState';
@@ -169,6 +170,8 @@ export interface MissionDef {
   zones: ZoneDef[];
   /** Geregisseerde les met een instructeur (alleen in de carrière). */
   lesson?: LessonId;
+  /** Kraanmatten bij de start (standaard houten matten 1,2 m). */
+  mats?: MatId;
   /** Leven op de bouwplaats; standaard volgens de omgeving. workers: 0 = niemand. */
   site?: { workers?: number };
   obstacles: ObstacleDef[];

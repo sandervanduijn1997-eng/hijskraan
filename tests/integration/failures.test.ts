@@ -63,7 +63,8 @@ describe('mislukkingen en veiligheidsgrenzen', () => {
 
   it('kantelen volgt uit het stabiliteitsmodel: zware last op slappe grond', () => {
     const base = practiceMission({ craneId: 'rt80', loadType: 'buildingModule', environment: 'roughTerrain', windBase: 0, gravity: 9.81 });
-    const m: MissionDef = { ...base, ground: [{ x0: -100, x1: 100, type: 'mud', quality: 0.3 }] };
+    // zwakke ondergrond voor de stabiliteit, maar met grote matten (de stempels zakken niet eerst weg)
+    const m: MissionDef = { ...base, mats: 'large', ground: [{ x0: -100, x1: 100, type: 'concrete', quality: 0.3 }] };
     const sim = new Simulation({ mission: m, craneId: 'rt80', difficulty: DIFFICULTIES.normal, freePlay: true });
     attachAt(sim, 'l1');
     run(sim, 30, () => { const i = emptyInput(); i.hoist = 1; return i; }, () => sim.crane.tipped || sim.outcome !== 'running');

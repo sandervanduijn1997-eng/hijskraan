@@ -95,7 +95,7 @@ export class Hud {
         { class: 'hud-data box' },
         h('h4', null, 'Lastmomentbegrenzer'),
         E('lmicfg', 'lmi-cfg'),
-        h('div', { class: 'dgrid' }, ...row('Toegestaan', 'cap'), ...row('Werkstraal', 'radius'), ...row('Lastgewicht', 'load'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres'), ...row('Aanslag', 'rig')),
+        h('div', { class: 'dgrid' }, ...row('Toegestaan', 'cap'), ...row('Werkstraal', 'radius'), ...row('Lastgewicht', 'load'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres'), ...row('Aanslag', 'rig'), ...row('Bodemdruk', 'ground')),
         h(
           'div',
           { class: 'lmi' },
@@ -229,6 +229,13 @@ export class Hud {
     } else setText(this.el.lmicfg, '');
     setText(this.el.rpm, sim.crane.rpm > 0 ? `${Math.round(sim.crane.rpm / 10) * 10} tpm` : 'elektrisch');
     setText(this.el.pres, sim.crane.rpm > 0 ? `${sim.crane.hydPressure} bar` : '—');
+    if (sim.padPressure.length) {
+      let wi = 0;
+      for (let i = 1; i < sim.padPressure.length; i++) if (sim.padPressure[i] / sim.padAllowed[i] > sim.padPressure[wi] / sim.padAllowed[wi]) wi = i;
+      const r = sim.padPressure[wi] / sim.padAllowed[wi];
+      setText(this.el.ground, `${Math.round(sim.padPressure[wi])}/${Math.round(sim.padAllowed[wi])} t/m²${sim.mats === 'none' ? '' : ' · mat'}`);
+      setClass(this.el.ground, r > 1 ? 'v bad' : 'v');
+    } else setText(this.el.ground, '—');
     const aanslag = sim.attached ? sim.rig : null;
     setText(this.el.rig, aanslag?.choice ? `${Math.round(sim.rigPct)} % · ${Math.round((aanslag.angle * 180) / Math.PI)}°` : sim.attached ? 'standaard' : '—');
     setClass(this.el.rig, aanslag?.choice && sim.rigPct > 100 ? 'v bad' : 'v');

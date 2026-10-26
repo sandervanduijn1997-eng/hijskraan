@@ -4,6 +4,8 @@ import { axisMaxSpeed, rampTime } from '../../src/cranes/controllers/craneContro
 import type { Axis } from '../../src/cranes/models/craneState';
 import { cloneCraneState } from '../../src/cranes/models/craneState';
 import { computeGeometry, solveBoomIK } from '../../src/cranes/models/kinematics';
+import { staticDeflection } from '../../src/cranes/models/boomFlex';
+import { allowedCapacityT } from '../../src/cranes/models/capacity';
 import type { MissionDef, TaskDef } from '../../src/missions/data/types';
 import { validateMission } from '../../src/missions/validation/validateMission';
 import { loadBottomCenter } from '../../src/missions/validation/placement';
@@ -66,6 +68,14 @@ class Bot {
     return y;
   }
 
+  /** Verwachte statische doorbuiging (m) in kraanstand st met de huidige kabelkracht. */
+  private predictDeflection(st: ReturnType<typeof cloneCraneState>): number {
+    const kind = this.sim.spec.cfg.kind;
+    if (kind !== 'telescopic' && kind !== 'lattice') return 0;
+    const L = kind === 'telescopic' ? st.boomLength : st.boomLength + (this.sim.spec.jibOptions[st.jibIndex] ?? 0);
+    return staticDeflection(L, this.sim.tensionF / 9.81 / 1000, allowedCapacityT(this.sim.spec, st), st.boomAngle);
+  }
+
   /** Gewenste kraanstand voor tip op straal u met minimale tiphoogte yMin. */
   private solve(u: number, yMin: number): Targets | null {
     const spec = this.sim.spec;
@@ -79,12 +89,20 @@ class Bot {
       case 'telescopic': {
         const yCap = Math.min(ceil, gb.pivotHeight + gb.boomMax);
         for (let y = Math.max(yMin, gb.pivotHeight + 1); y <= yCap; y += 0.5) {
-          const ik = solveBoomIK(spec, u, y);
+          // plannen met de verwachte doorbuiging in die stand (zoals een machinist hoger aanhoudt)
+          let ik = solveBoomIK(spec, u, y);
           const st = cloneCraneState(s);
-          st.boomAngle = ik.angle;
-          st.boomLength = ik.length;
           st.slew = 0;
           st.tilt = 0;
+          for (let it = 0; it < 2; it++) {
+            st.boomAngle = ik.angle;
+            st.boomLength = ik.length;
+            const d = this.predictDeflection(st);
+            ik = solveBoomIK(spec, u - d * Math.sin(ik.angle), y + d * Math.cos(ik.angle));
+          }
+          st.boomAngle = ik.angle;
+          st.boomLength = ik.length;
+          st.boomDeflect = this.predictDeflection(st);
           const g = computeGeometry(spec, st);
           if (Math.abs(g.tipU - u) < 0.15 && g.tipHeight >= yMin - 0.05 && g.tipHeight <= ceil + 0.5) return { boomAngle: ik.angle, boomLength: ik.length };
         }
@@ -98,6 +116,7 @@ class Bot {
         st.tilt = 0;
         const tipAt = (a: number) => {
           st.boomAngle = a;
+          st.boomDeflect = this.predictDeflection(st);
           return computeGeometry(spec, st);
         };
         if (tipAt(lo).tipU < u || tipAt(hi).tipU > u) return null;
@@ -150,7 +169,7 @@ class Bot {
       (inp as unknown as Record<string, number>)[axis] = c;
       if (Math.abs(err) > tol || Math.abs(s.vel[axis]) > axisMaxSpeed(this.sim.spec, axis) * 0.05) done = false;
     };
-    if (t.boomAngle !== undefined) set('luff', t.boomAngle - s.boomAngle, 0.002);
+    if (t.boomAngle !== undefined) set('luff', t.boomAngle - s.boomAngle, Math.min(0.002, 0.05 / Math.max(10, this.sim.geom.displayBoomLength)));
     if (t.boomAngleK !== undefined) set('luff', t.boomAngleK - s.boomAngle, 0.004);
     if (t.boomLength !== undefined) set('tele', t.boomLength - s.boomLength, 0.02);
     if (t.trolley !== undefined) set('trolley', t.trolley - s.trolley, 0.02);
@@ -478,7 +497,7 @@ class Bot {
   /** Tip naar boven (x, z) op hoogte tipY (telescoopkraan). Geeft true als de stand bereikt is. */
   private tipTo3D(x: number, z: number, tipY: number, inp: CraneInput, maxCmd = 0.7): boolean {
     const p = this.polar(x, z);
-    const ik = solveBoomIK(this.sim.spec, p.u, tipY);
+    const ik = this.ikDeflected(p.u, tipY);
     let err = wrapAngle(p.a - this.sim.crane.slew);
     // niet met de giek over de toren in aanbouw zwenken: dan de andere kant om (achterlangs)
     const asm = this.sim.assembly;
@@ -648,8 +667,15 @@ class Bot {
   private tipTargetFor(load: LoadRuntime, x: number): number {
     const b = load.cb.body;
     const off = loadBottomCenter(b).x - this.sim.geom.tip.x;
-    this.offF += (off - this.offF) * (1 / 60 / 2.5);
+    // filtertijd minstens één slingerperiode, anders volgt de schatting de slinger zelf
+    const tip = this.sim.geom.tip;
+    const period = 2 * Math.PI * Math.sqrt(Math.max(1, tip.y - loadBottomCenter(b).y) / 9.81);
+    this.offF += (off - this.offF) * (1 / 60 / Math.max(2.5, period));
     return x - this.offF + FOLLOW * (off - this.offF);
+  }
+
+  offFValue(): number {
+    return this.offF;
   }
 
   private keepTipOver(x: number, inp: CraneInput): void {
@@ -679,7 +705,11 @@ class Bot {
       for (let L = gb.boomMin; L <= gb.boomMax + 1e-6; L += 0.5) {
         const c = (u - gb.pivotU) / L;
         if (c > 1 || c < Math.cos(gb.boomAngleMaxDeg * DEG)) continue;
-        best = Math.max(best, gb.pivotHeight + L * Math.sqrt(1 - c * c));
+        // minus de verwachte doorbuiging met de huidige last in die stand
+        st.boomLength = L;
+        st.boomAngle = Math.acos(c);
+        const d = this.predictDeflection(st);
+        best = Math.max(best, gb.pivotHeight + L * Math.sqrt(1 - c * c) - d * c - d * 0.5);
       }
       return best;
     }
@@ -697,6 +727,13 @@ class Bot {
     return best;
   }
 
+  /** Inverse kinematica met compensatie voor de huidige doorbuiging van de giek (zoals een machinist bijstuurt). */
+  private ikDeflected(u: number, y: number): { angle: number; length: number } {
+    const d = this.sim.crane.boomDeflect;
+    const th = this.sim.geom.displayBoomAngle;
+    return solveBoomIK(this.sim.spec, u - d * Math.sin(th), y + d * Math.cos(th));
+  }
+
   /** Doelstand op straal u met behoud van de huidige tiphoogte (fijncorrectie). */
   private solveNear(u: number): Targets | null {
     const sim = this.sim;
@@ -704,7 +741,7 @@ class Bot {
     if (kind === 'tower') return this.solve(u, 0);
     if (kind === 'lattice') return this.solve(u, 0);
     if (kind === 'telescopic') {
-      const ik = solveBoomIK(sim.spec, u, sim.geom.tipHeight);
+      const ik = this.ikDeflected(u, sim.geom.tipHeight);
       return { boomAngle: ik.angle, boomLength: ik.length };
     }
     return this.solve(u, Math.max(0, sim.geom.tipHeight - 0.6));
@@ -780,7 +817,7 @@ export function playMission(m: MissionDef, difficulty: DifficultyProfile, maxSec
       const hp = sim.hookPoint();
       const l = sim.attached ? loadBottomCenter(sim.attached.cb.body) : null;
       const imp = sim.world.impacts.map((e) => `${e.bodyId}->${e.otherId}@${e.speed.toFixed(2)}`).join(' ');
-      trace(`${sim.time.toFixed(1)} [${bot.phase}] tip=(${sim.geom.tip.x.toFixed(2)},${sim.geom.tip.y.toFixed(2)}) hook=(${hp.x.toFixed(2)},${hp.y.toFixed(2)}) load=${l ? `(${l.x.toFixed(2)},${l.y.toFixed(2)})` : '-'} sway=${sim.swayDeg.toFixed(1)} dmg=${sim.metrics.damage} pct=${sim.loadPct.toFixed(0)} blk=${JSON.stringify(sim.lastControl.blocked)} boom=${(sim.crane.boomAngle * 57.3).toFixed(1)}/${sim.crane.boomLength.toFixed(1)} rope=${sim.rope.length.toFixed(1)}/${sim.crane.ropeLength.toFixed(1)} vH=${sim.crane.vel.hoist.toFixed(2)} slack=${sim.rope.slack} stretch=${sim.rope.stretch.toFixed(2)} ${imp}`);
+      trace(`${sim.time.toFixed(1)} [${bot.phase}] tip=(${sim.geom.tip.x.toFixed(2)},${sim.geom.tip.y.toFixed(2)}) hook=(${hp.x.toFixed(2)},${hp.y.toFixed(2)}) load=${l ? `(${l.x.toFixed(2)},${l.y.toFixed(2)})` : '-'} sway=${sim.swayDeg.toFixed(1)} dmg=${sim.metrics.damage} pct=${sim.loadPct.toFixed(0)} blk=${JSON.stringify(sim.lastControl.blocked)} boom=${(sim.crane.boomAngle * 57.3).toFixed(1)}/${sim.crane.boomLength.toFixed(1)} rope=${sim.rope.length.toFixed(1)}/${sim.crane.ropeLength.toFixed(1)} vH=${sim.crane.vel.hoist.toFixed(2)} slack=${sim.rope.slack} stretch=${sim.rope.stretch.toFixed(2)} defl=${sim.crane.boomDeflect.toFixed(3)} offF=${bot.offFValue().toFixed(2)} ${imp}`);
       lastPhase = bot.phase;
       lastDmg = sim.metrics.damage;
     }

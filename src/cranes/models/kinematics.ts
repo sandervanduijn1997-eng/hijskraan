@@ -214,6 +214,24 @@ export function computeGeometry(spec: ResolvedCrane, s: CraneState): CraneGeomet
     }
   }
 
+  // doorbuiging van een uitkragende giek: verplaatsing loodrecht op de giek, kromming als een ingeklemde balk
+  if ((spec.cfg.kind === 'telescopic' || spec.cfg.kind === 'lattice') && s.boomDeflect) {
+    const th = displayBoomAngle;
+    const L = Math.hypot(tipU - gb.pivotU, tipY - gb.pivotHeight) || 1;
+    const nu = Math.sin(th);
+    const ny = -Math.cos(th);
+    const bend = (u: number, y: number): [number, number] => {
+      const d = Math.min(1, Math.hypot(u - gb.pivotU, y - gb.pivotHeight) / L);
+      const f = (d * d * (3 - d)) / 2;
+      return [u + s.boomDeflect * f * nu, y + s.boomDeflect * f * ny];
+    };
+    for (const seg of segments) {
+      [seg.u0, seg.y0] = bend(seg.u0, seg.y0);
+      [seg.u1, seg.y1] = bend(seg.u1, seg.y1);
+    }
+    [tipU, tipY] = bend(tipU, tipY);
+  }
+
   const cs = Math.cos(s.slew);
   const sn = Math.sin(s.slew);
   let tx = slewX + tipU * cs;
