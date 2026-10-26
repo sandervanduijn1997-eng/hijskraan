@@ -76,6 +76,7 @@ export class App {
     loadStatus?.(res.status);
     this.ui = document.getElementById('ui')!;
     this.input = new InputManager(this.save.settings.bindings);
+    this.input.analog = this.save.settings.analog;
     audio.setMix({ master: this.save.settings.masterVolume, music: this.save.settings.musicVolume, sfx: this.save.settings.sfxVolume });
     const unlock = () => {
       audio.unlock();
@@ -864,11 +865,37 @@ export class App {
       this.host.setQuality(s.graphics);
       this.persist();
     });
+    // analoge bediening: sticks en oplopende toetsen
+    const range = (label: string, min: number, max: number, step: number, val: number, fmtV: (v: number) => string, on: (v: number) => void, id: string) => {
+      const out = h('span', { class: 'muted', style: 'min-width:4.5em;text-align:right' }, fmtV(val));
+      const i = h('input', { type: 'range', id, min, max, step, value: val }) as HTMLInputElement;
+      i.addEventListener('input', () => {
+        on(Number(i.value));
+        out.textContent = fmtV(Number(i.value));
+        this.input.analog = s.analog;
+        this.persist();
+      });
+      return h('label', { class: 'line' }, label, i, out);
+    };
+    const analogPanel = h(
+      'section',
+      { class: 'panel' },
+      h('h3', null, 'Analoge bediening'),
+      h('p', { class: 'muted', style: 'font-size:.85em' }, this.input.gamepadName ? `Controller: ${this.input.gamepadName}` : 'Sluit een controller aan om met sticks te doseren. Linkerstick: draaien en giek of loopkat · rechterstick: hijsen en telescoop · triggers: rijden · RB: precisie · LB: opbouw · A: aanslaan.'),
+      range('Toets loopt op in', 0, 2.5, 0.1, s.analog.keyRamp, (v) => (v === 0 ? 'direct' : `${v.toFixed(1)} s`), (v) => (s.analog.keyRamp = v), 'set-keyramp'),
+      range('Dode zone stick', 0, 0.4, 0.01, s.analog.deadzone, (v) => `${Math.round(v * 100)} %`, (v) => (s.analog.deadzone = v), 'set-deadzone'),
+      range('Responscurve', 1, 3, 0.1, s.analog.curve, (v) => (v <= 1.05 ? 'lineair' : `fijn ×${v.toFixed(1)}`), (v) => (s.analog.curve = v), 'set-curve'),
+      toggle('Hijsas omkeren (stick naar voren = vieren)', s.analog.invertHoist, (v) => {
+        s.analog.invertHoist = v;
+        this.input.analog = s.analog;
+      }),
+    );
     const content = h(
       'div',
       { class: 'settings' },
       h('section', { class: 'panel' }, h('h3', null, 'Audio'), slider('Mastervolume', s.masterVolume, (v) => (s.masterVolume = v)), slider('Muziek', s.musicVolume, (v) => (s.musicVolume = v)), slider('Geluidseffecten', s.sfxVolume, (v) => (s.sfxVolume = v)), !audio.available ? h('p', { class: 'muted' }, 'Audio start na de eerste klik of toetsaanslag.') : null),
       h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
+      analogPanel,
       h('section', { class: 'panel' }, h('h3', null, 'Besturing'), h('p', { class: 'muted', style: 'font-size:.85em' }, 'Klik op een toets om die te wijzigen. Esc annuleert.'), binds, h('button', { class: 'btn small', style: 'margin-top:.6em', onclick: () => { s.bindings = structuredClone(DEFAULT_BINDINGS); this.input.setBindings(s.bindings); this.persist(); this.showSettings(inGame); } }, 'Standaardbesturing herstellen')),
     );
     if (inGame) {

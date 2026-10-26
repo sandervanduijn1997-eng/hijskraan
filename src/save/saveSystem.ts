@@ -1,6 +1,8 @@
 import { CRANE_IDS } from '../cranes/config/cranes';
 import type { CraneId, LicenseId, UpgradeId } from '../cranes/config/types';
 import type { DifficultyId } from '../sim/difficulty';
+import type { AnalogSettings } from '../game/input/analog';
+import { defaultAnalog } from '../game/input/analog';
 
 export const SAVE_VERSION = 2;
 export const SAVE_KEY = 'crane-operator-heavy-lift.save';
@@ -55,6 +57,8 @@ export interface Settings {
   particles: boolean;
   /** Grafische kwaliteit (laag, middel, hoog, ultra). */
   graphics: 'low' | 'medium' | 'high' | 'ultra';
+  /** Sticks en oplopende toetsen. */
+  analog: AnalogSettings;
   bindings: Record<ActionId, string[]>;
 }
 
@@ -91,6 +95,7 @@ export const defaultSettings = (): Settings => ({
   showHints: true,
   particles: true,
   graphics: 'high',
+  analog: defaultAnalog(),
   bindings: structuredClone(DEFAULT_BINDINGS),
 });
 
@@ -171,6 +176,11 @@ export function sanitizeSave(raw: unknown): { data: SaveData; repaired: boolean 
     cameraShake: bool(s.cameraShake, true),
     showHints: bool(s.showHints, true),
     particles: bool(s.particles, true),
+    analog: (() => {
+      const a = isObj(s.analog) ? s.analog : {};
+      const d = defaultAnalog();
+      return { deadzone: num(a.deadzone, d.deadzone, 0, 0.4), curve: num(a.curve, d.curve, 1, 3), keyRamp: num(a.keyRamp, d.keyRamp, 0, 2.5), invertHoist: bool(a.invertHoist, d.invertHoist) };
+    })(),
     graphics: (['low', 'medium', 'high', 'ultra'] as const).includes(s.graphics as 'low') ? (s.graphics as Settings['graphics']) : 'high',
     bindings: structuredClone(DEFAULT_BINDINGS),
   };

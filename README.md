@@ -40,6 +40,10 @@ Zie [docs/TEST_PLAN.md](docs/TEST_PLAN.md) voor wat er wordt getest.
 | I / K | — | — | knikarm op / neer |
 | ← / → | rijden | — | rijden |
 
+Toetsen lopen op: kort tikken geeft 15 % snelheid, vasthouden loopt in ca. 1 s op naar vol (instelbaar in Instellingen → Analoge bediening).
+
+**Controller** (standaardindeling, bijv. Xbox/PlayStation): linkerstick = draaien en giek op/neer (torenkraan: loopkat), rechterstick = hijsen/vieren en telescoop (knikarm: knikarm), triggers = rijden, RB = precisie, LB = opbouw (vasthouden), A = aanslaan, X = stempels automatisch, Y = camera, B = overzicht, Start = pauze, D-pad = zoom. Dode zone, responscurve en een omgekeerde hijsas zijn instelbaar.
+
 Algemeen: **V** camera volgen/cabine · **Shift** precisie · **T** aanslaan/afkoppelen · **O** stempelmodus (W/S schuiven, E/Q vijzels, 1–4 kiezen, 0 = alle) · **P** automatische stempelprocedure · **B** (vasthouden) opbouwprocedure · **Spatie** pauze · **Esc** menu · **+/−/muiswiel** zoom · **Tab** overzicht · **C** camera herstellen · **H** claxon · **F1** bedieningsoverzicht.
 
 ## Weergave
