@@ -18,6 +18,7 @@ export const CHAPTER_1: MissionDef[] = [
     tasks: [{ type: 'deliver', loadId: 'p1', zoneId: 'z1' }],
     wind: calm, parTime: 120, maxDamage: 40, requirements: {}, bounds: { minX: -40, maxX: 60 },
     reward: { money: 500, xp: 100 },
+    lesson: 'firstLift',
   },
   {
     id: 'm02', number: 2, chapter: 1, title: 'Precisie boven snelheid',

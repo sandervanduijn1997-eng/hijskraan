@@ -1,3 +1,4 @@
+import type { LessonId } from '../../sim/lesson';
 import type { CraneId, LicenseId } from '../../cranes/config/types';
 import type { CraneStartConfig } from '../../cranes/models/craneState';
 import type { ColliderKind, HitPolicy } from '../../physics/collision/colliders';
@@ -166,6 +167,8 @@ export interface MissionDef {
   assembly?: TowerAssemblyDef;
   loads: LoadSpawn[];
   zones: ZoneDef[];
+  /** Geregisseerde les met een instructeur (alleen in de carrière). */
+  lesson?: LessonId;
   /** Leven op de bouwplaats; standaard volgens de omgeving. workers: 0 = niemand. */
   site?: { workers?: number };
   obstacles: ObstacleDef[];

@@ -845,7 +845,10 @@ export class Simulation {
     const cx = this.geom.slewX;
     const cz = this.geom.slewZ;
     const cw = this.spec.counterweights[this.crane.counterweightIndex];
-    const rMin = Math.max(6, (cw?.radius ?? 3) + 2.5);
+    // afgezette draaicirkel: buiten de staart (contragewicht) én buiten de stempelplaten
+    const fp = this.spec.gb.footprintOutriggers ?? this.spec.gb.footprintRetracted;
+    const tail = this.spec.cfg.kind === 'tower' ? 3 : (cw?.radius ?? 3) + 2.5;
+    const rMin = Math.max(6, tail, Math.hypot(fp.a, fp.b) + 2);
     const rMax = Math.max(rMin + 8, Math.min(30, this.spec.gb.boomMax * 0.8));
     const blocked = (x: number, z: number, pad: number): boolean => {
       for (const c of this.missionColliders) {

@@ -7,6 +7,7 @@ import { generateLoadChart, allowedCapacityT } from '../cranes/models/capacity';
 import type { LmiSetup } from '../cranes/models/lmi';
 import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
 import type { GearKind, PointMode, RigChoice } from '../sim/rigging';
+import { LessonRunner } from '../sim/lesson';
 import { MAX_SLING_ANGLE, SLING_LENGTHS, buildRig, gearFor, legLoadT, rigProblems, suggestRig } from '../sim/rigging';
 import { resolveCrane } from '../cranes/models/craneSpec';
 import { createCraneState } from '../cranes/models/craneState';
@@ -90,6 +91,9 @@ export class App {
   private scene: World3D | null = null;
   private session: SessionConfig | null = null;
   private plan: PlanChoice | null = null;
+  private lesson: LessonRunner | null = null;
+  private lessonSim: Simulation | null = null;
+  private lessonTime = 0;
   private resultShown = false;
   private notice: HTMLElement | null = null;
 
@@ -221,6 +225,7 @@ export class App {
       overview: scene.overviewActive,
       timeLimitActive: sim.difficulty.timer && this.session?.mode === 'career',
     });
+    this.updateLesson(sim, scene);
     const v = sim.crane.vel;
     const gb = sim.spec.gb;
     const hyd = Math.min(1, Math.abs(v.luff) / Math.max(1e-6, gb.luffSpeedDeg * 0.0175) + Math.abs(v.tele) / Math.max(1e-6, gb.teleSpeed || 1) + Math.abs(v.slew) / Math.max(1e-6, gb.slewSpeedDeg * 0.0175) * 0.5 + Math.abs(v.knuckle) * 3 + Math.abs(v.trolley) * 0.5);
@@ -1038,6 +1043,33 @@ export class App {
     );
     this.openOverlay(panel);
     preview();
+  }
+
+  /** Geregisseerde les: instructeur via de portofoon, markering in de wereld, signaalgever zwijgt zolang. */
+  private updateLesson(sim: Simulation, scene: World3D): void {
+    if (this.lessonSim !== sim) {
+      this.lessonSim = sim;
+      this.lessonTime = sim.time;
+      const id = sim.mission.lesson;
+      this.lesson = id && this.session?.mode === 'career' ? new LessonRunner(id, (a) => keyLabel(this.save.settings.bindings[a]?.[0] ?? a)) : null;
+      this.hud?.lesson(null);
+    }
+    const ls = this.lesson;
+    if (!ls) {
+      scene.lessonMarker = null;
+      scene.signalMuted = false;
+      return;
+    }
+    const text = ls.update(sim, sim.time - this.lessonTime);
+    this.lessonTime = sim.time;
+    if (text) {
+      audio.radio();
+      this.hud?.lesson(text);
+      if (this.save.settings.signalman === 'voice') speak(text);
+    }
+    if (ls.finished) this.hud?.lesson(null);
+    scene.lessonMarker = ls.marker(sim);
+    scene.signalMuted = !ls.finished;
   }
 
   /** Aanslagpaneel: gereedschap, sprongen, stroplengte en hijspunten kiezen; live hoek en belasting per sprong. */

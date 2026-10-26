@@ -26,6 +26,7 @@ import { SiteLife3D } from './siteLife3d';
 import type { Worker } from './people';
 import { Signalman } from '../sim/signalman';
 import type { SignalCall } from '../sim/signalman';
+import type { LessonMarker } from '../sim/lesson';
 import { WorldModel, ZoneMarker } from './worldModel';
 import { loadSky, realismEnabled, skyFor } from './realism';
 
@@ -101,6 +102,11 @@ export class World3D {
   private signalFigure: Worker;
   /** Laatste aanwijzing die nog uitgesproken moet worden (de app haalt hem op). */
   pendingCall: SignalCall | null = null;
+  /** Markering van de les (de app zet hem per frame) en of de signaalgever dan zwijgt. */
+  lessonMarker: LessonMarker | null = null;
+  signalMuted = false;
+  private markerArrow: THREE.Mesh;
+  private markerRing: THREE.Mesh;
 
   constructor(readonly cfg: SessionConfig, readonly hooks: SceneHooks, renderer: THREE.WebGLRenderer, labelRoot: HTMLElement) {
     const dom = renderer.domElement;
@@ -204,6 +210,13 @@ export class World3D {
       this.siteLife = new SiteLife3D(this.sim.site, this.sim, night);
       this.scene.add(this.siteLife.root);
     }
+    const markMat = new THREE.MeshBasicMaterial({ color: 0x3ee07a, transparent: true, opacity: 0.85, depthWrite: false });
+    this.markerArrow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.8, 16), markMat);
+    this.markerArrow.rotation.x = Math.PI;
+    this.markerRing = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 8, 48), markMat);
+    this.markerRing.rotation.x = -Math.PI / 2;
+    this.markerArrow.visible = this.markerRing.visible = false;
+    this.scene.add(this.markerArrow, this.markerRing);
     this.depthAid = new DepthAid(labelRoot);
     this.scene.add(this.depthAid.root);
     this.signalFigure = buildWorker(0xffd21f, 0xffffff);
@@ -258,7 +271,7 @@ export class World3D {
     const fig = this.signalFigure;
     fig.root.visible = on && sim.outcome === 'running';
     if (!fig.root.visible) return;
-    if (!this.paused) {
+    if (!this.paused && !this.signalMuted) {
       const call = this.signalman.update(sim);
       if (call) this.pendingCall = call;
     }
@@ -550,6 +563,17 @@ export class World3D {
     this.depthAid.update(sim, this.rig.camera, this.cfg.mode !== 'demo' && this.hooks.settings().depthAid !== false);
     this.updateSignalman(sim, t);
     this.siteLife?.update(this.paused ? 0 : dt);
+    const mk = this.lessonMarker;
+    this.markerArrow.visible = mk?.kind === 'arrow';
+    this.markerRing.visible = mk?.kind === 'ring';
+    if (mk) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+      if (mk.kind === 'arrow') this.markerArrow.position.set(mk.x, mk.y + 0.5 + pulse * 0.4, mk.z);
+      else {
+        this.markerRing.position.set(mk.x, mk.y + 0.04, mk.z);
+        this.markerRing.scale.setScalar((mk.r ?? 1) * (1 + pulse * 0.08));
+      }
+    }
     // luisteraar = camera; in de cabine gedempt
     const camQ = this.rig.camera.quaternion;
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camQ);

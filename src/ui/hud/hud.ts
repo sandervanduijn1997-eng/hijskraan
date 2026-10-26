@@ -122,6 +122,7 @@ export class Hud {
       (this.el.prompt = h('div', { class: 'hud-prompt box', style: 'display:none' })),
       (this.el.toast = h('div', { class: 'hud-toast box' })),
       (this.el.radio = h('div', { class: 'hud-radio box', style: 'display:none' })),
+      (this.el.lesson = h('div', { class: 'hud-lesson box', style: 'display:none', 'data-testid': 'lesson' })),
       this.keysEl,
     );
     this.renderTasks();
@@ -129,6 +130,12 @@ export class Hud {
 
   private radioTimer = 0;
   /** Ondertitel van de signaalgever (portofoon). */
+  /** Instructie van de instructeur (blijft staan tot de volgende stap); null = verbergen. */
+  lesson(text: string | null): void {
+    this.el.lesson.style.display = text ? '' : 'none';
+    if (text) this.el.lesson.textContent = `🎓 Instructeur: ${text}`;
+  }
+
   radio(text: string): void {
     this.el.radio.textContent = `📻 Signaalgever: ${text}`;
     this.el.radio.style.display = '';
