@@ -21,6 +21,10 @@ import { Effects3D } from './effects3d';
 import { buildHook, buildLoad } from './loadModel';
 import { RopeMesh, ropeRadius } from './ropeMesh';
 import { DepthAid } from './depthAid';
+import { buildWorker, poseSignal } from './people';
+import type { Worker } from './people';
+import { Signalman } from '../sim/signalman';
+import type { SignalCall } from '../sim/signalman';
 import { WorldModel, ZoneMarker } from './worldModel';
 import { loadSky, realismEnabled, skyFor } from './realism';
 
@@ -38,7 +42,7 @@ export interface SceneHooks {
   onFrame(sim: Simulation, scene: World3D): void;
   onEvents(sim: Simulation, events: SimEvent[]): void;
   onEdge(action: EdgeAction, sim: Simulation): void;
-  settings(): { cameraShake: boolean; particles: boolean; depthAid?: boolean };
+  settings(): { cameraShake: boolean; particles: boolean; depthAid?: boolean; signalman?: 'voice' | 'text' | 'off' };
 }
 
 /** Demo-besturing voor de menu-achtergrond. */
@@ -88,6 +92,11 @@ export class World3D {
   private sunDir = new THREE.Vector3(0.45, 0.75, 0.5).normalize();
   private disposed = false;
   private depthAid: DepthAid;
+  /** Signaalgever: logica + figuur bij de doelzone. */
+  readonly signalman = new Signalman();
+  private signalFigure: Worker;
+  /** Laatste aanwijzing die nog uitgesproken moet worden (de app haalt hem op). */
+  pendingCall: SignalCall | null = null;
 
   constructor(readonly cfg: SessionConfig, readonly hooks: SceneHooks, renderer: THREE.WebGLRenderer, labelRoot: HTMLElement) {
     const dom = renderer.domElement;
@@ -185,6 +194,9 @@ export class World3D {
 
     this.depthAid = new DepthAid(labelRoot);
     this.scene.add(this.depthAid.root);
+    this.signalFigure = buildWorker(0xffd21f, 0xffffff);
+    this.signalFigure.root.visible = false;
+    this.scene.add(this.signalFigure.root);
     this.rig = new CameraRig(dom);
     if (cfg.mode === 'demo') {
       this.rig.autoOrbit = 0.03;
@@ -226,6 +238,41 @@ export class World3D {
     this.scene.remove(this.hook);
     disposeGroup(this.hook);
     this.hook = this.buildHookMeshes();
+  }
+
+  /** Signaalgever: aanwijzing bepalen en de figuur bij de doelzone (of de last) laten gebaren. */
+  private updateSignalman(sim: Simulation, t: number): void {
+    const on = this.cfg.mode !== 'demo' && this.hooks.settings().signalman !== 'off';
+    const fig = this.signalFigure;
+    fig.root.visible = on && sim.outcome === 'running';
+    if (!fig.root.visible) return;
+    if (!this.paused) {
+      const call = this.signalman.update(sim);
+      if (call) this.pendingCall = call;
+    }
+    // plek: 5 m naast het doel, aan de kant van de camera, met zicht op de kraan
+    const task = sim.tasks.find((k) => k.status === 'active' && k.def.type === 'deliver');
+    let tx = sim.geom.tip.x;
+    let ty = 0;
+    let tz = 0;
+    if (task && task.def.type === 'deliver') {
+      const zid = (task.def as { zoneId: string; loadId: string }).zoneId;
+      const z = sim.attached ? sim.mission.zones.find((zz) => zz.id === zid) : undefined;
+      const l = sim.loads.find((ll) => ll.id === (task.def as { loadId: string }).loadId);
+      if (z) {
+        tx = z.x;
+        ty = z.y;
+        tz = z.z ?? 0;
+      } else if (l) {
+        tx = l.cb.body.pos.x;
+        tz = l.cb.body.pos.z;
+        ty = 0;
+      }
+    }
+    const surf = sim.surfaceBelow(tx, tz + 5, 0.3, 0.3, ty + 0.5);
+    fig.root.position.set(tx + 1.5, surf.y, tz + 5);
+    fig.root.lookAt(sim.geom.slewX, surf.y, sim.geom.slewZ);
+    poseSignal(fig, this.signalman.current, t);
   }
 
   /** Resolutie van de zonneschaduw (kwaliteitsinstelling). */
@@ -467,6 +514,7 @@ export class World3D {
     this.rig.update(dt, focus, this.overviewPts);
     this.dome.position.copy(this.rig.camera.position);
     this.depthAid.update(sim, this.rig.camera, this.cfg.mode !== 'demo' && this.hooks.settings().depthAid !== false);
+    this.updateSignalman(sim, t);
     // luisteraar = camera; in de cabine gedempt
     const camQ = this.rig.camera.quaternion;
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camQ);

@@ -58,6 +58,8 @@ export interface Settings {
   particles: boolean;
   /** Loodlijn, voetafdruk en hoogte in cm onder de last. */
   depthAid: boolean;
+  /** Signaalgever via de portofoon: gesproken, alleen tekst of uit. */
+  signalman: 'voice' | 'text' | 'off';
   /** Grafische kwaliteit (laag, middel, hoog, ultra). */
   graphics: 'low' | 'medium' | 'high' | 'ultra';
   /** Sticks en oplopende toetsen. */
@@ -98,6 +100,7 @@ export const defaultSettings = (): Settings => ({
   showHints: true,
   particles: true,
   depthAid: true,
+  signalman: 'voice',
   graphics: 'high',
   analog: defaultAnalog(),
   bindings: structuredClone(DEFAULT_BINDINGS),
@@ -181,6 +184,7 @@ export function sanitizeSave(raw: unknown): { data: SaveData; repaired: boolean 
     showHints: bool(s.showHints, true),
     particles: bool(s.particles, true),
     depthAid: bool(s.depthAid, true),
+    signalman: (['voice', 'text', 'off'] as const).includes(s.signalman as 'voice') ? (s.signalman as Settings['signalman']) : 'voice',
     analog: (() => {
       const a = isObj(s.analog) ? s.analog : {};
       const d = defaultAnalog();

@@ -231,3 +231,5 @@ select, input[type='number'] { background: #23272d; color: var(--text); border: 
 .lmi-preview { margin-top: 0.8em; padding: 0.6em 0.8em; font-family: var(--mono); background: #0d1410; color: #b6f5c8; border-radius: 4px; }
 .lmi-preview.danger { color: #ff6b5b; }
 @keyframes blink { 50% { opacity: 0.35; } }
+
+.hud-radio { position: absolute; left: 50%; bottom: 8.6em; transform: translateX(-50%); padding: 0.45em 1em; font-weight: 600; color: #ffe08a; pointer-events: none; }

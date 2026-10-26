@@ -59,6 +59,25 @@ const TOWER_PART_DONE: Record<TowerPartKind, string> = {
   ballast: 'Ballastblok geplaatst ✓',
 };
 
+/** Spreek een aanwijzing uit met een Nederlandse stem (als de browser spraak heeft). */
+function speak(text: string): void {
+  try {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    const u = new SpeechSynthesisUtterance(text.replace(/…/g, ', '));
+    u.lang = 'nl-NL';
+    const v = synth.getVoices().find((vv) => vv.lang?.toLowerCase().startsWith('nl'));
+    if (v) u.voice = v;
+    u.rate = 1.05;
+    u.pitch = 0.9;
+    u.volume = 0.9;
+    synth.cancel();
+    synth.speak(u);
+  } catch {
+    /* geen spraak: de ondertitel blijft */
+  }
+}
+
 export class App {
   save: SaveData;
   input: InputManager;
@@ -122,7 +141,7 @@ export class App {
       onFrame: (sim, scene) => this.onFrame(sim, scene),
       onEvents: (sim, ev) => this.onEvents(sim, ev),
       onEdge: (a, sim) => this.onEdge(a, sim),
-      settings: () => ({ cameraShake: this.save.settings.cameraShake, particles: this.save.settings.particles, depthAid: this.save.settings.depthAid }),
+      settings: () => ({ cameraShake: this.save.settings.cameraShake, particles: this.save.settings.particles, depthAid: this.save.settings.depthAid, signalman: this.save.settings.signalman }),
     };
   }
 
@@ -202,6 +221,16 @@ export class App {
     const v = sim.crane.vel;
     const gb = sim.spec.gb;
     const hyd = Math.min(1, Math.abs(v.luff) / Math.max(1e-6, gb.luffSpeedDeg * 0.0175) + Math.abs(v.tele) / Math.max(1e-6, gb.teleSpeed || 1) + Math.abs(v.slew) / Math.max(1e-6, gb.slewSpeedDeg * 0.0175) * 0.5 + Math.abs(v.knuckle) * 3 + Math.abs(v.trolley) * 0.5);
+    // signaalgever: portofoonruis, ondertitel en (optioneel) gesproken aanwijzing
+    const call = scene.pendingCall;
+    if (call) {
+      scene.pendingCall = null;
+      if (this.save.settings.signalman !== 'off') {
+        audio.radio();
+        this.hud?.radio(call.text);
+        if (this.save.settings.signalman === 'voice') speak(call.text);
+      }
+    }
     const sp = { x: sim.geom.slewX, y: sim.spec.cfg.visual.carrierHeight + 1.5, z: sim.geom.slewZ };
     audio.update({ engine: sim.crane.engine, hydraulic: hyd, winch: v.hoist / Math.max(0.1, gb.hoistSpeed), wind: sim.wind.speed, drive: Math.abs(v.drive) / Math.max(0.1, gb.driveSpeed), loadPct: sim.attached ? sim.loadPct : 0, reversing: v.drive < -0.05, pos: sp });
   }
@@ -898,11 +927,16 @@ export class App {
         this.input.analog = s.analog;
       }),
     );
+    const sigSel = h('select', { id: 'set-signalman' }, ...([['voice', 'Gesproken + tekst'], ['text', 'Alleen tekst'], ['off', 'Uit']] as const).map(([v, l]) => h('option', { value: v, selected: s.signalman === v }, l))) as HTMLSelectElement;
+    sigSel.addEventListener('change', () => {
+      s.signalman = sigSel.value as typeof s.signalman;
+      this.persist();
+    });
     const content = h(
       'div',
       { class: 'settings' },
       h('section', { class: 'panel' }, h('h3', null, 'Audio'), slider('Mastervolume', s.masterVolume, (v) => (s.masterVolume = v)), slider('Muziek', s.musicVolume, (v) => (s.musicVolume = v)), slider('Geluidseffecten', s.sfxVolume, (v) => (s.sfxVolume = v)), !audio.available ? h('p', { class: 'muted' }, 'Audio start na de eerste klik of toetsaanslag.') : null),
-      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), toggle('Dieptehulp bij hijsen (loodlijn, voetafdruk, hoogte)', s.depthAid, (v) => (s.depthAid = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
+      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('label', { class: 'line' }, 'Signaalgever (portofoon)', sigSel), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), toggle('Dieptehulp bij hijsen (loodlijn, voetafdruk, hoogte)', s.depthAid, (v) => (s.depthAid = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
       analogPanel,
       h('section', { class: 'panel' }, h('h3', null, 'Besturing'), h('p', { class: 'muted', style: 'font-size:.85em' }, 'Klik op een toets om die te wijzigen. Esc annuleert.'), binds, h('button', { class: 'btn small', style: 'margin-top:.6em', onclick: () => { s.bindings = structuredClone(DEFAULT_BINDINGS); this.input.setBindings(s.bindings); this.persist(); this.showSettings(inGame); } }, 'Standaardbesturing herstellen')),
     );

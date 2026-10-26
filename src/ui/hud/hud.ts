@@ -121,9 +121,19 @@ export class Hud {
       (this.el.warns = h('div', { class: 'hud-warn', 'data-testid': 'warnings' })),
       (this.el.prompt = h('div', { class: 'hud-prompt box', style: 'display:none' })),
       (this.el.toast = h('div', { class: 'hud-toast box' })),
+      (this.el.radio = h('div', { class: 'hud-radio box', style: 'display:none' })),
       this.keysEl,
     );
     this.renderTasks();
+  }
+
+  private radioTimer = 0;
+  /** Ondertitel van de signaalgever (portofoon). */
+  radio(text: string): void {
+    this.el.radio.textContent = `📻 Signaalgever: ${text}`;
+    this.el.radio.style.display = '';
+    window.clearTimeout(this.radioTimer);
+    this.radioTimer = window.setTimeout(() => (this.el.radio.style.display = 'none'), 3200);
   }
 
   toast(text: string, ms = 2200): void {
