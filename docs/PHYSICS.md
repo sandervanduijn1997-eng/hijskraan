@@ -42,6 +42,10 @@ Elke as trekt geleidelijk op tot volle snelheid, met een aanlooptijd die logarit
 
 Dit is bepalend voor het slingergedrag: de slingerhoek bij optrekken is ongeveer `atan(a/g)`. In v0.1.0 was de aanlooptijd 0,55 s voor alle assen, wat bij zwenken ~4 m/s² gaf en tot 26° slinger. Nu blijft volle-snelheid-zwenken en loslaten onder ca. 5° (regressietest in `tests/integration/swing.test.ts`).
 
+## Hydrauliek en motor (`cranes/models/powertrain.ts`)
+
+Mobiele kranen hebben een diesel (750–1900 tpm, tijdconstante 0,7 s) met automatische gasregeling op de hendeluitslag, en een werktoerental (handgas) van 1200 tpm zolang er een last aan de haak hangt of tot 4 s na een beweging. Eén pomp levert olie naar verhouding van het toerental (bij vol toerental 1,6 "volle bewegingen"). Vraag per beweging: hijsen 1,0, giek 0,8, telescoop 0,7, knikarm 0,6, zwenken 0,5. Is de vraag groter dan de pompopbrengst, dan krijgt elke beweging dezelfde fractie: tegelijk hijsen, de giek bedienen en zwenken gaat merkbaar trager. Onder volle hijslast zakt het toerental tot 15 % van het regelbereik in. De HUD toont toerental en systeemdruk; het motorgeluid volgt het toerental. Torenkranen zijn elektrisch: aparte aandrijvingen, geen gedeelde olie.
+
 ## Kinematica (`cranes/models/kinematics.ts`)
 
 - **Telescoop/vakwerk**: `tip_u = pivot_u + L·cos θ`, `tip_y = pivot_h + L·sin θ`; optionele hulpgiek met offsethoek.

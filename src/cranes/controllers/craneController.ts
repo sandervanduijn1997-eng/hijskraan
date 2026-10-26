@@ -7,6 +7,7 @@ import { DEG, approach, clamp, dist3 } from '../../utils/math';
 import type { ResolvedCrane } from '../models/craneSpec';
 import type { Axis, CraneState } from '../models/craneState';
 import { cloneCraneState } from '../models/craneState';
+import { ENGINE, FLOW_WEIGHT, flowScale, hydraulicDemand, isElectric, stepRpm, systemPressure, targetRpm } from '../models/powertrain';
 import { allowedCapacityT, supportState } from '../models/capacity';
 import type { CraneGeometry } from '../models/kinematics';
 import { computeGeometry, segmentToWorld } from '../models/kinematics';
@@ -352,6 +353,19 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
     drive: input.drive,
   };
   const loadF = 1 - 0.45 * clamp(ctx.loadPercent / 100, 0, 1);
+  // aandrijving: toerental volgt de vraag, de pomp deelt de oliestroom over de bewegingen
+  const electric = isElectric(spec);
+  const demand = hydraulicDemand(commands);
+  let share = 1;
+  if (!electric) {
+    s.rpmHold = demand > 0.01 ? ENGINE.workHold : Math.max(0, (s.rpmHold ?? 0) - dt);
+    s.rpm = stepRpm(s.rpm || ENGINE.idle, targetRpm(demand, ctx.loadPercent, commands.hoist > 0 && ctx.loadAttached, ctx.loadAttached || s.rpmHold > 0), dt);
+    share = flowScale(demand, s.rpm);
+    s.hydPressure = systemPressure(ctx.loadAttached ? ctx.loadPercent : 0, demand, Math.abs(commands.hoist) > 0.05);
+  } else {
+    s.rpm = 0;
+    s.hydPressure = 0;
+  }
 
   for (const axis of Object.keys(commands) as Axis[]) {
     let cmd = clamp(commands[axis], -1, 1);
@@ -376,6 +390,7 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
     const prec = input.precision ? (axis === 'hoist' ? Math.min(precision, 0.1) * (spec.effects.precisionFactor < 0.25 ? 0.7 : 1) : precision) : 1;
     let maxV = axisMaxSpeed(spec, axis) * condF * prec;
     if (axis === 'hoist' && cmd > 0) maxV *= loadF;
+    if (!electric && FLOW_WEIGHT[axis]) maxV *= share;
     if (axis === 'drive') {
       const gi = groundAt(ctx.ground, s.baseX, ctx.groundFallback);
       const rough = spec.cfg.carrier === 'roughTerrain' || spec.cfg.carrier === 'crawler';
@@ -450,7 +465,8 @@ export function updateCrane(spec: ResolvedCrane, s: CraneState, input: CraneInpu
     if (m > 0) activity += Math.abs(s.vel[k]) / m;
   }
   const targetEngine = clamp(0.12 + activity * 0.35 + (ctx.loadPercent / 100) * 0.25 * (Math.abs(s.vel.hoist) > 0.01 ? 1 : 0.2), 0, 1);
-  s.engine = approach(s.engine, targetEngine, dt * 1.5);
+  // diesel: motorbelasting volgt het toerental; elektrisch: de belasting van de aandrijvingen
+  s.engine = electric ? approach(s.engine, targetEngine, dt * 1.5) : clamp((s.rpm - ENGINE.idle) / (ENGINE.max - ENGINE.idle) * 0.85 + targetEngine * 0.25, 0, 1);
   s.fuelUsed += (gb.fuelRate * (0.15 + 0.85 * s.engine) * dt) / 3600;
   return res;
 }

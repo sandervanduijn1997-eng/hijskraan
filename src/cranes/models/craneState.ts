@@ -35,6 +35,11 @@ export interface CraneState {
   wheelRot: number;
   /** Motorbelasting 0..1. */
   engine: number;
+  /** Motortoerental (tpm; 0 bij elektrische kranen) en hydraulische systeemdruk (bar). */
+  rpm: number;
+  hydPressure: number;
+  /** Resterende tijd (s) dat het werktoerental (handgas) blijft staan. */
+  rpmHold: number;
   fuelUsed: number;
 }
 
@@ -95,6 +100,9 @@ export function createCraneState(spec: ResolvedCrane, start: CraneStartConfig): 
     vel: zeroVel(),
     wheelRot: 0,
     engine: 0,
+    rpm: spec.cfg.kind === 'tower' ? 0 : 750,
+    hydPressure: 0,
+    rpmHold: 0,
     fuelUsed: 0,
   };
 }

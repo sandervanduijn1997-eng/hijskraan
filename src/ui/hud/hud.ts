@@ -93,7 +93,7 @@ export class Hud {
         'div',
         { class: 'hud-data box' },
         h('h4', null, 'Lastmomentbegrenzer'),
-        h('div', { class: 'dgrid' }, ...row('Lastgewicht', 'load'), ...row('Toegestaan', 'cap'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Werkstraal', 'radius'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw')),
+        h('div', { class: 'dgrid' }, ...row('Lastgewicht', 'load'), ...row('Toegestaan', 'cap'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Werkstraal', 'radius'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres')),
         h(
           'div',
           { class: 'lmi' },
@@ -197,6 +197,8 @@ export class Hud {
     setText(this.el.radius, `${fmt(g.radius)} m`);
     setText(this.el.hookH, `${fmt(sim.hookPoint().y)} m`);
     setText(this.el.rope, `${fmt(sim.rope.length)} m`);
+    setText(this.el.rpm, sim.crane.rpm > 0 ? `${Math.round(sim.crane.rpm / 10) * 10} tpm` : 'elektrisch');
+    setText(this.el.pres, sim.crane.rpm > 0 ? `${sim.crane.hydPressure} bar` : '—');
     const cw = sim.spec.counterweights[sim.crane.counterweightIndex];
     setText(this.el.cw, `${fmt((cw?.massT ?? 0) + sim.crane.extraCounterweightT, 1)} t`);
     const pct = sim.attached ? sim.loadPct : Math.min(sim.loadPct, 100);
