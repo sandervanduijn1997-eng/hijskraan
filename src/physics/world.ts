@@ -1,12 +1,13 @@
 import { AIR_DENSITY, GRAVITY } from './constants';
 import type { Collider } from './collision/colliders';
 import type { ContactBody, FrictionParams, ImpactEvent } from './collision/contacts';
-import { colliderQuads, solveContacts } from './collision/contacts';
+import { colliderQuads, solveContactVelocities, solveContacts } from './collision/contacts';
+import type { SolvedContact } from './collision/contacts';
 import type { Quad } from './collision/geometry';
 import type { RopeState } from './cable/rope';
 import { solveRope } from './cable/rope';
 import type { RigidBody } from './load/rigidBody';
-import { apexWorld } from './load/rigidBody';
+import { apexWorld, applyAngularCorrection, bodyYaw, qAddRotation, qMul, updateDerived } from './load/rigidBody';
 import type { Vec3 } from '../utils/math';
 
 export interface PhysicsParams {
@@ -20,6 +21,13 @@ export interface PhysicsParams {
   /** Maximale demping van de kabelrek (1/s); werkelijk kritisch gedempt (2ω) zodat de kabel niet terugveert of de last vasthoudt. */
   ropeDamping: number;
   friction: FrictionParams;
+  /** Demping van het gieren (draaien om de kabel) door monteurs met stuurlijnen (1/s). */
+  yawDamping: number;
+  /**
+   * Terugdraaistijfheid van de kabelparten: zoals een bifilaire slinger levert de afstand s tussen de parten
+   * een moment k = G·s²/(4L). Dit is s²/4 (m²).
+   */
+  ropeTorsion: number;
 }
 
 /** Hoe lang (s) een contact "onthouden" wordt voor inslagdetectie. */
@@ -35,6 +43,8 @@ export const defaultPhysicsParams = (): PhysicsParams => ({
   ropeCompliance: 0,
   ropeDamping: 60,
   friction: { staticMu: 0.65, dynamicMu: 0.45 },
+  yawDamping: 0.35,
+  ropeTorsion: 0.16,
 });
 
 /**
@@ -51,6 +61,12 @@ export class PhysicsWorld {
   /** Lichaam dat aan de kabel hangt (haakblok of last+haak). */
   ropeBody: ContactBody | null = null;
   impacts: ImpactEvent[] = [];
+  /**
+   * Neutrale draaistand van de kabel (rad): een staalkabel draait licht op of af bij vieren en hijsen,
+   * waardoor een hangende last langzaam gaat gieren.
+   */
+  ropeTwist = 0;
+  private ropeTwistBody: ContactBody | null = null;
 
   constructor(params: PhysicsParams = defaultPhysicsParams()) {
     this.params = params;
@@ -133,16 +149,33 @@ export class PhysicsWorld {
         b.prevPos.x = b.pos.x;
         b.prevPos.y = b.pos.y;
         b.prevPos.z = b.pos.z;
-        b.prevAngle = b.angle;
+        b.prevQ.x = b.q.x;
+        b.prevQ.y = b.q.y;
+        b.prevQ.z = b.q.z;
+        b.prevQ.w = b.q.w;
         b.pos.x += b.vel.x * h;
         b.pos.y += b.vel.y * h;
         b.pos.z += b.vel.z * h;
-        b.angle += b.angVel * h;
+        qAddRotation(b.q, b.omega.x * h, b.omega.y * h, b.omega.z * h);
       }
 
-      if (rb) lambdaSum += solveRope(rb.body, tip, lengthStart + (rope.length - lengthStart) * f, h, p.ropeCompliance);
+      if (rb) {
+        const L = lengthStart + (rope.length - lengthStart) * f;
+        const lam = solveRope(rb.body, tip, L, h, p.ropeCompliance);
+        lambdaSum += lam;
+        // kabeltorsie: een belaste kabel trekt de last terug naar zijn neutrale draaistand (om de verticaal)
+        if (lam > 0 && p.ropeTorsion > 0) {
+          const tension = lam / (h * h);
+          const yaw = bodyYaw(rb.body);
+          let err = yaw - this.ropeTwist;
+          err = Math.atan2(Math.sin(err), Math.cos(err));
+          // bifilaire slinger: k = G·s²/(4L); als zachte hoekconstraint (compliance 1/k)
+          const stiff = (p.ropeTorsion * tension) / Math.max(1, L);
+          if (stiff > 1e-6) applyAngularCorrection(rb.body, { x: 0, y: 1, z: 0 }, -err, 1 / stiff, h);
+        }
+      }
 
-      solveContacts(this.bodies, this.colliders, this.quads, p.friction, this.impacts);
+      const contacts: SolvedContact[] = solveContacts(this.bodies, this.colliders, this.quads, p.friction, this.impacts);
 
       for (const cb of this.bodies) {
         const b = cb.body;
@@ -150,18 +183,35 @@ export class PhysicsWorld {
         b.vel.x = (b.pos.x - b.prevPos.x) / h;
         b.vel.y = (b.pos.y - b.prevPos.y) / h;
         b.vel.z = (b.pos.z - b.prevPos.z) / h;
-        b.angVel = (b.angle - b.prevAngle) / h;
+        // hoeksnelheid uit de rotatie van deze substap: Δq = q · prevQ⁻¹
+        const dq = qMul(b.q, { x: -b.prevQ.x, y: -b.prevQ.y, z: -b.prevQ.z, w: b.prevQ.w });
+        const sgn = dq.w >= 0 ? 2 / h : -2 / h;
+        b.omega.x = dq.x * sgn;
+        b.omega.y = dq.y * sgn;
+        b.omega.z = dq.z * sgn;
+        // vangnet: geen onfysische snelheden na een diepe contactcorrectie
+        const sp = Math.hypot(b.vel.x, b.vel.y, b.vel.z);
+        if (sp > 25) {
+          b.vel.x *= 25 / sp;
+          b.vel.y *= 25 / sp;
+          b.vel.z *= 25 / sp;
+        }
         const lin = Math.max(0, 1 - p.linearDamping * h);
         b.vel.x *= lin;
         b.vel.y *= lin;
         b.vel.z *= lin;
-        const angD = cb.touching.size > 0 ? p.angularDamping * 8 : p.angularDamping;
-        b.angVel *= Math.max(0, 1 - angD * h);
+        const angD = Math.max(0, 1 - (cb.touching.size > 0 ? p.angularDamping * 8 : p.angularDamping) * h);
+        b.omega.x *= angD;
+        b.omega.y *= angD;
+        b.omega.z *= angD;
+        if (cb === rb) b.omega.y *= Math.max(0, 1 - p.yawDamping * h);
         if (cb.touching.size > 0 && cb === rb) {
           // een last die half aan de kabel en half op de grond rust, zou anders blijven wippen en wiegen
           const cd = Math.max(0, 1 - CONTACT_DAMPING * h);
           b.vel.y *= cd;
-          b.angVel *= cd;
+          b.omega.x *= cd;
+          b.omega.y *= cd;
+          b.omega.z *= cd;
         }
         if (cb === rb) {
           // demping van de kabelrek langs de kabelrichting (alleen bij strakke kabel)
@@ -194,8 +244,15 @@ export class PhysicsWorld {
           b.vel.z = tipVz + (b.vel.z - tipVz) * k;
         }
       }
+      solveContactVelocities(contacts, p.friction, h);
     }
 
+    for (const cb of this.bodies) updateDerived(cb.body);
+    // de neutrale draaistand volgt de kabel: nieuwe last → begint waar hij hangt; vieren/hijsen draait de kabel licht
+    if (rb !== this.ropeTwistBody) {
+      this.ropeTwistBody = rb;
+      if (rb) this.ropeTwist = bodyYaw(rb.body);
+    } else if (rb) this.ropeTwist += (rope.length - lengthStart) * 0.004;
     // spanning = λ / h² gemiddeld over de substappen
     rope.tension = rb ? lambdaSum / (h * h) / substeps : 0;
     if (rb) {
@@ -230,11 +287,12 @@ export class PhysicsWorld {
       }
       if (b.sleeping) continue;
       const v = Math.abs(b.vel.x) + Math.abs(b.vel.y) + Math.abs(b.vel.z);
-      if (cb.touching.size > 0 && v < 0.03 && Math.abs(b.angVel) < 0.03) {
+      if (cb.touching.size > 0 && v < 0.03 && b.angVel < 0.03) {
         b.sleepTimer += dt;
         if (b.sleepTimer > 0.6) {
           b.sleeping = true;
           b.vel.x = b.vel.y = b.vel.z = 0;
+          b.omega.x = b.omega.y = b.omega.z = 0;
           b.angVel = 0;
         }
       } else {

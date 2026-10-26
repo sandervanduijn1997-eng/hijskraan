@@ -19,6 +19,16 @@ npm run build        # typecheck + productiebuild
 | `progress.test.ts` | save/load-rondreis, ontbrekende velden, ongeldige waarden, beschadigd bestand + reservekopie, migratie v1, vrijspelen missies/hoofdstukken, niveaus, geld en XP, herhaalfactor, huur, kopen met licentie, upgrades, onderhoud, audio zonder WebAudio |
 | `missionValidation.test.ts` | 40 missies, nummering, 8×5, **elke missie geldig en haalbaar** (bereik + lastdiagram), kraan↔missie-verwijzingen, elke kraanklasse gebruikt, elke missie start stabiel zonder schade, uitdagingen en oefenscenario's |
 
+### 3D-lastfysica (`tests/unit/physics3d.test.ts`)
+
+| Test | Wat |
+|---|---|
+| rust | een last op een laadvloer kruipt niet weg en valt in slaap |
+| kantelen in z | een last die over een rand hangt kantelt om de x-as en valt eraf |
+| 3D-slinger | een uit het lood gehangen last zwaait ook in z |
+| kabeltorsie | een 30° verdraaide ligger draait terug (bifilaire slinger), gedempt door stuurlijnen |
+| schuine botsing | diagonaal tegen een hoek: de last gaat er niet doorheen |
+
 ## Integratietests (`tests/integration`, headless autopilot)
 
 `tests/helpers/autopilot.ts` stuurt de kraan via dezelfde `CraneInput` als de speler (servo op giek/telescoop/zwenk/lier).

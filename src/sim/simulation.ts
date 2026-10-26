@@ -27,11 +27,11 @@ import { createRope, ropeAngles } from '../physics/cable/rope';
 import type { RopeState } from '../physics/cable/rope';
 import type { Collider } from '../physics/collision/colliders';
 import type { ContactBody } from '../physics/collision/contacts';
-import { rangesOverlap, segmentIntersectsRect, quadBounds } from '../physics/collision/geometry';
+import { rangesOverlap, segmentIntersectsRect } from '../physics/collision/geometry';
 import { AIR_DENSITY, FIXED_DT, GRAVITY, SUBSTEPS } from '../physics/constants';
 import { groundFactorFor } from '../physics/ground';
 import type { RigidBody } from '../physics/load/rigidBody';
-import { apexWorld, bodyQuad, createBoxBody, setBodyMass, wakeBody } from '../physics/load/rigidBody';
+import { apexWorld, bodyBounds, createBoxBody, localToWorld, setBodyMass, wakeBody } from '../physics/load/rigidBody';
 import type { StabilityResult } from '../physics/stability/stability';
 import { computeStability } from '../physics/stability/stability';
 import { loadPercent } from '../physics/stability/loadChart';
@@ -99,6 +99,11 @@ export interface BodySnapshot {
   y: number;
   z: number;
   angle: number;
+  /** Oriëntatie (quaternion) voor de weergave. */
+  qx: number;
+  qy: number;
+  qz: number;
+  qw: number;
 }
 
 const HOOK_ID = '__hook__';
@@ -435,15 +440,11 @@ export class Simulation {
   hookPoint(): Vec3 {
     if (this.attached) {
       const b = this.attached.cb.body;
-      const a = apexWorld(b);
-      const c = Math.cos(b.angle);
-      const s = Math.sin(b.angle);
-      return { x: a.x + s * this.hookH, y: a.y - c * this.hookH, z: a.z };
+      return localToWorld(b, b.apex.x, b.apex.y - this.hookH);
     }
     if (this.hookBody) {
       const b = this.hookBody.body;
-      const p = { x: b.pos.x + Math.sin(b.angle) * b.halfH, y: b.pos.y - Math.cos(b.angle) * b.halfH, z: b.pos.z };
-      return p;
+      return localToWorld(b, 0, -b.halfH);
     }
     return { ...this.geom.tip };
   }
@@ -457,11 +458,7 @@ export class Simulation {
   /** Hijspunt (bovenkant stroppen) van een last in wereldcoördinaten. */
   slingPoint(l: LoadRuntime): Vec3 {
     const b = l.cb.body;
-    const ly = b.boxOffset.y + b.halfH + l.type.slingHeight;
-    const c = Math.cos(b.angle);
-    const s = Math.sin(b.angle);
-    const lx = b.boxOffset.x;
-    return { x: b.pos.x + lx * c - ly * s, y: b.pos.y + lx * s + ly * c, z: b.pos.z };
+    return localToWorld(b, b.boxOffset.x, b.boxOffset.y + b.halfH + l.type.slingHeight);
   }
 
   /** De dichtstbijzijnde last die aangeslagen kan worden. */
@@ -489,7 +486,7 @@ export class Simulation {
     }
     const b = l.cb.body;
     b.apex = { x: b.apex.x, y: b.boxOffset.y + b.halfH + l.type.slingHeight + this.hookH };
-    setBodyMass(b, l.type.massKg + this.hookMassKg, this.hookMassKg * (b.apex.x * b.apex.x + b.apex.y * b.apex.y));
+    setBodyMass(b, l.type.massKg + this.hookMassKg, { mass: this.hookMassKg, x: b.apex.x, y: b.apex.y });
     l.cb.extraPoints = [{ x: b.apex.x, y: b.apex.y - this.hookH }];
     b.frozen = false;
     wakeBody(b);
@@ -551,7 +548,11 @@ export class Simulation {
         s.y = b.pos.y;
         s.z = b.pos.z;
         s.angle = b.angle;
-      } else this.prevSnap.set(cb.id, { x: b.pos.x, y: b.pos.y, z: b.pos.z, angle: b.angle });
+        s.qx = b.q.x;
+        s.qy = b.q.y;
+        s.qz = b.q.z;
+        s.qw = b.q.w;
+      } else this.prevSnap.set(cb.id, { x: b.pos.x, y: b.pos.y, z: b.pos.z, angle: b.angle, qx: b.q.x, qy: b.q.y, qz: b.q.z, qw: b.q.w });
     }
     this.prevTip = { ...this.geom.tip };
   }
@@ -809,10 +810,10 @@ export class Simulation {
       const speed = Math.hypot(b.vel.x, b.vel.y);
       const range = this.spec.effects.advancedWarnings ? 2.5 : 1.0;
       if (speed > 0.15) {
-        const bb = quadBounds(bodyQuad(b));
+        const bb = bodyBounds(b);
         for (const c of this.colliders) {
           if (c.kind === 'crane' || (c.landable && bb.minY >= c.maxY - 0.2)) continue;
-          if (!rangesOverlap(b.pos.z - b.depth / 2, b.pos.z + b.depth / 2, c.minZ, c.maxZ)) continue;
+          if (!rangesOverlap(bb.minZ, bb.maxZ, c.minZ, c.maxZ)) continue;
           const dx = Math.max(c.minX - bb.maxX, bb.minX - c.maxX, 0);
           const dy = Math.max(c.minY - bb.maxY, bb.minY - c.maxY, 0);
           if (Math.hypot(dx, dy) < range && Math.hypot(dx, dy) > 0.001) {

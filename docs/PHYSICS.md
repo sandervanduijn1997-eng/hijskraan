@@ -28,7 +28,9 @@ De giekkop (ophangpunt) én de kabellengte worden lineair over de substappen ge�
 
 ## Lasten (star lichaam)
 
-Positie (3D), hoek (in het xy-vlak), massa en traagheidsmoment `I = m(w²+h²)/12 + m·e²`. Rotatie volgt uit de gegeneraliseerde inverse massa `w = 1/m + (r×n)²/I` bij kabel- en contactcorrecties: lange lasten kantelen bij een stoot aan één kant, brede panelen vangen meer wind (`Cd·A` per lasttype). Gieren (rotatie om de verticale as) wordt niet gesimuleerd: aangenomen wordt dat de last met geleidelijnen (taglines) in het vlak wordt gehouden.
+Volledig 3D (`physics/load/rigidBody.ts`): positie, oriëntatie als quaternion, hoeksnelheid als vector en een traagheidstensor van een doos met verschoven zwaartepunt (`Ixx = m(h²+d²)/12`, `Iyy = m(w²+d²)/12 + m·e²`, `Izz = m(w²+h²)/12 + m·e²`; het haakblok telt als puntmassa op het ophangpunt). Correcties gebruiken de gegeneraliseerde inverse massa `w = 1/m + (r×n)·I⁻¹_w·(r×n)` met `I⁻¹_w = R·I⁻¹·Rᵀ`; de rotatie wordt bijgewerkt met `Δq = ½·(I⁻¹_w (r×Δp))·q` en de hoeksnelheid volgt uit `Δq = q·q_prev⁻¹`. Lasten kantelen dus in elke richting, hangen scheef bij een excentrisch zwaartepunt en kunnen om de kabel gieren.
+
+**Gieren en kabeltorsie.** De kabelparten werken als een bifilaire slinger: een verdraaide last krijgt een terugdraaimoment `k = G·s²/(4L)` (zachte hoekconstraint met compliance `1/k`), met `s²/4 = 0,16 m²`. Vieren en hijsen verschuiven de neutrale stand licht (opdraaien van de kabel). Monteurs met stuurlijnen dempen het gieren (`yawDamping` 0,35 /s).
 
 ## Slingerbeweging
 
@@ -54,10 +56,9 @@ Elke kraan heeft naast `baseX` een `baseZ`; de onderwagen blijft evenwijdig aan 
 
 ## Botsingen
 
-- Obstakels: AABB's in xy met een echt z-bereik (diepte per soort, zie `DEPTH_BY_KIND` in `missions/runtime/buildWorld.ts`; bv. gebouw 16 m, muur 6 m, kolom 1,2 m). Lasten: georiënteerde dozen.
-- Contacten: hoekpunten van de last in een obstakel én hoekpunten van het obstakel in de last (zodat een balk op twee smalle steunpunten kan rusten). De entry-rand wordt bepaald uit de vorige positie, waardoor een last niet door dunne platen schiet.
-- Zijwaarts (in z) een obstakel in zwenken wordt in z teruggeduwd.
-- Wrijving: XPBD statisch/dynamisch (μs 0,65, μk 0,45).
+- Obstakels: 3D-dozen (AABB) met een echte diepte per soort (zie `DEPTH_BY_KIND` in `missions/runtime/buildWorld.ts`; bv. gebouw 16 m, muur 6 m, kolom 1,2 m). Lasten: georiënteerde dozen (OBB) in 3D.
+- Contacten (`physics/collision/contacts.ts`): oppervlaktepunten van de last (hoeken + randen, ≤ 0,5 m uit elkaar) in een obstakel of andere last, én randpunten van het obstakel in de last. De uitstootzijde volgt uit de vorige positie (instapzijde), maar alleen als die niet veel dieper ligt dan de ondiepste zijde. Voor randen van een obstakel kiest de solver de zijde waar de last werkelijk aan ligt (zoals een scheidende as), met de lokale diepte langs een straal door de last. Correcties zijn per punt en substap begrensd (4 cm).
+- Wrijving en restitutie op snelheidsniveau (Müller e.a., XPBD): per contact een tangentiële tegenimpuls begrensd door μ maal de normaalkracht (μs 0,65 bij < 5 cm/s, μk 0,45), en de normaalsnelheid na een correctie wordt teruggezet naar maximaal 10 % van de inslagsnelheid. Daardoor liggen rustende lasten echt stil en vliegen lasten niet weg na een diepe correctie.
 - Impactsnelheid bij nieuw contact → schade (landingslimiet per last, kwetsbaarheid) of botsing.
 - Giek/armen (lijnsegmenten met dikte) tegen obstakels: een nieuwe botsing draait de beweging terug en telt als botsing.
 - De eigen onderwagen (en torenmast) is een botsingsobject; het dek is landbaar (contragewichtplateau, laadvloer).

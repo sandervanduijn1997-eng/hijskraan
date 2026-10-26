@@ -597,18 +597,22 @@ class Bot {
     this.phase = `${load.id}: uitlijnen`;
     let offX = 0;
     let offZ = 0;
+    // vanaf het aanlooppunt langzaam (0,25 m/s) naar binnen schuiven, zodat de last niet doorslingert
+    let gx = ax;
     for (let k = 0; k < 60 * 120; k++) {
       const i = emptyInput();
       const bc = loadBottomCenter(b);
       const ex = bc.x - zone.x;
       const ez = bc.z - zz;
-      if (sim.swayDeg < 0.5) {
+      gx += Math.sign(zone.x - gx) * Math.min(Math.abs(zone.x - gx), 0.25 / 60);
+      const arrived = Math.abs(gx - zone.x) < 1e-3;
+      if (arrived && sim.swayDeg < 0.5 && load.cb.touching.size === 0) {
         offX += ex * (1 / 60 / 1.5);
         offZ += ez * (1 / 60 / 1.5);
       }
       this.hoistTo(hookY, i);
-      this.tipTo3D(zone.x - offX, zz - offZ, tipY, i, 0.3);
-      if (k > 180 && sim.swayDeg < 0.25 && Math.abs(ex) < zone.tolerance * 0.35 && Math.abs(ez) < (zone.zTolerance ?? 1) * 0.35) break;
+      this.tipTo3D(gx - offX, zz - offZ, tipY, i, 0.3);
+      if (arrived && k > 180 && sim.swayDeg < 0.25 && Math.abs(ex) < zone.tolerance * 0.35 && Math.abs(ez) < (zone.zTolerance ?? 1) * 0.35) break;
       yield i;
     }
     // 6. plaatsen: neerzetten op het vlak, of in de lucht stil houden tot de monteurs klaar zijn

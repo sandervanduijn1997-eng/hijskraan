@@ -38,7 +38,7 @@ export function solveRope(body: RigidBody, tip: Vec3, length: number, dt: number
   const nx = -dx / d;
   const ny = -dy / d;
   const nz = -dz / d;
-  return applyPositionalCorrection(body, a.x, a.y, null, 0, 0, nx, ny, nz, d - length, compliance, dt);
+  return applyPositionalCorrection(body, a, null, null, { x: nx, y: ny, z: nz }, d - length, compliance, dt);
 }
 
 /** Hoek van de kabel t.o.v. de verticaal (rad) in het xy-vlak en in z. */

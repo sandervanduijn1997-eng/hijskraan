@@ -54,6 +54,9 @@ export interface ZoneDef {
   /** Doeloriëntatie (graden) en toegestane hoekafwijking. */
   angleDeg?: number;
   angleTolDeg?: number;
+  /** Vereiste draaistand om de verticaal (gieren) en tolerantie, bijv. voor een giek die in zijn aanzetpunt moet. */
+  yawDeg?: number;
+  yawTolDeg?: number;
   /** Zone-breedte voor de weergave (standaard 2 × tolerance + lastbreedte). */
   displayWidth?: number;
 }

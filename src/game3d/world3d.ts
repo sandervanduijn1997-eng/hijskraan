@@ -7,7 +7,7 @@ import { computeGeometry } from '../cranes/models/kinematics';
 import { emptyInput } from '../cranes/controllers/craneInput';
 import type { MissionDef } from '../missions/data/types';
 import { FIXED_DT, MAX_FRAME_DELTA, MAX_STEPS_PER_FRAME } from '../physics/constants';
-import { apexWorld } from '../physics/load/rigidBody';
+import type { RigidBody } from '../physics/load/rigidBody';
 import type { SimEvent, SimOptions } from '../sim/simulation';
 import { Simulation, hookWidth } from '../sim/simulation';
 import { lerp } from '../utils/math';
@@ -351,19 +351,25 @@ export class World3D {
     }
     this.fx.update(this.paused ? 0 : dt, sim.wind.x, this.rig.camera);
 
-    // lasten
-    const lerpBody = (id: string, b: { pos: { x: number; y: number; z: number }; angle: number }) => {
+    // lasten: positie lineair, oriëntatie met slerp tussen de vorige en huidige vaste stap
+    const qa = new THREE.Quaternion();
+    const qb = new THREE.Quaternion();
+    const lerpBody = (id: string, b: RigidBody) => {
       const p = sim.prevSnap.get(id);
-      if (!p) return { x: b.pos.x, y: b.pos.y, z: b.pos.z, angle: b.angle };
-      return { x: lerp(p.x, b.pos.x, alpha), y: lerp(p.y, b.pos.y, alpha), z: lerp(p.z, b.pos.z, alpha), angle: lerp(p.angle, b.angle, alpha) };
+      qb.set(b.q.x, b.q.y, b.q.z, b.q.w);
+      if (!p) return { pos: new THREE.Vector3(b.pos.x, b.pos.y, b.pos.z), q: qb.clone() };
+      qa.set(p.qx, p.qy, p.qz, p.qw);
+      return { pos: new THREE.Vector3(lerp(p.x, b.pos.x, alpha), lerp(p.y, b.pos.y, alpha), lerp(p.z, b.pos.z, alpha)), q: qa.clone().slerp(qb, alpha) };
     };
+    /** Lichaamspunt → wereld met de geïnterpoleerde pose. */
+    const toWorld = (pose: { pos: THREE.Vector3; q: THREE.Quaternion }, lx: number, ly: number, lz = 0) => new THREE.Vector3(lx, ly, lz).applyQuaternion(pose.q).add(pose.pos);
     for (const l of sim.loads) {
       const v = this.loads.get(l.id)!;
       v.group.visible = l.status !== 'consumed';
       if (!v.group.visible) continue;
       const p = lerpBody(l.id, l.cb.body);
-      v.group.position.set(p.x, p.y, p.z);
-      v.group.rotation.z = p.angle;
+      v.group.position.copy(p.pos);
+      v.group.quaternion.copy(p.q);
     }
 
     // haak, kabel en stroppen
@@ -375,32 +381,27 @@ export class World3D {
     if (sim.attached) {
       const b = sim.attached.cb.body;
       const p = lerpBody(sim.attached.id, b);
-      const a = apexWorld(b);
-      apex = new THREE.Vector3(a.x + p.x - b.pos.x, a.y + p.y - b.pos.y, p.z);
-      const c = Math.cos(p.angle);
-      const s = Math.sin(p.angle);
-      this.hook.position.set(apex.x + s * sim.hookH * 0.5, apex.y - c * sim.hookH * 0.5, apex.z);
-      this.hook.rotation.z = p.angle;
-      const hp = new THREE.Vector3(apex.x + s * sim.hookH, apex.y - c * sim.hookH, apex.z);
+      apex = toWorld(p, b.apex.x, b.apex.y);
+      this.hook.position.copy(toWorld(p, b.apex.x, b.apex.y - sim.hookH * 0.5));
+      this.hook.quaternion.copy(p.q);
+      const hp = toWorld(p, b.apex.x, b.apex.y - sim.hookH);
       const topY = b.boxOffset.y + b.halfH;
       const dz = Math.min(b.depth, 6) * 0.4;
       let k = 0;
       for (const lx of [-b.halfW * 0.8, b.halfW * 0.8]) {
         for (const z of [-dz, dz]) {
-          const wx = p.x + (b.boxOffset.x + lx) * c - topY * s;
-          const wy = p.y + (b.boxOffset.x + lx) * s + topY * c;
+          const w = toWorld(p, b.boxOffset.x + lx, topY, z);
           slingPos.setXYZ(k++, hp.x, hp.y, hp.z);
-          slingPos.setXYZ(k++, wx, wy, p.z + z);
+          slingPos.setXYZ(k++, w.x, w.y, w.z);
         }
       }
       this.slings.visible = true;
     } else {
       const hb = sim.hookBody!.body;
       const p = lerpBody(sim.hookBody!.id, hb);
-      const a = apexWorld(hb);
-      apex = new THREE.Vector3(a.x + p.x - hb.pos.x, a.y + p.y - hb.pos.y, p.z);
-      this.hook.position.set(p.x, p.y, p.z);
-      this.hook.rotation.z = p.angle;
+      apex = toWorld(p, hb.apex.x, hb.apex.y);
+      this.hook.position.copy(p.pos);
+      this.hook.quaternion.copy(p.q);
       this.slings.visible = false;
     }
     slingPos.needsUpdate = true;
