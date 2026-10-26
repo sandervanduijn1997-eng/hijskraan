@@ -19,6 +19,7 @@ import type { FramePoint } from './cameraRig';
 import { CraneModel, LIVERIES } from './craneModel';
 import { Effects3D } from './effects3d';
 import { buildHook, buildLoad } from './loadModel';
+import { RopeMesh, ropeRadius } from './ropeMesh';
 import { WorldModel, ZoneMarker } from './worldModel';
 import { loadSky, realismEnabled, skyFor } from './realism';
 
@@ -66,12 +67,13 @@ export class World3D {
   private tower: CraneModel | null = null;
   private erection: { state: CraneState; geom: CraneGeometry } | null = null;
   /** Geparkeerde hulpkraan met haak en kabel. */
-  private parked: { model: CraneModel; hook: THREE.Group; rope: THREE.Line } | null = null;
+  private parked: { model: CraneModel; hook: THREE.Group; rope: RopeMesh } | null = null;
   private world: WorldModel;
   private loads = new Map<string, { group: THREE.Group; inner: THREE.Group }>();
   private hook: THREE.Group;
-  private ropes: THREE.Line[] = [];
-  private slings: THREE.LineSegments;
+  private rope: RopeMesh | null = null;
+  /** Vier stroppen (buizen) van de haak naar de hijspunten van de last. */
+  private slings: THREE.InstancedMesh;
   private zones: ZoneMarker[] = [];
   private labels: HTMLElement[] = [];
   private fx = new Effects3D();
@@ -159,8 +161,10 @@ export class World3D {
       this.loads.set(l.id, { group, inner });
     }
     this.hook = this.buildHookMeshes();
-    this.slings = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 8 }, () => new THREE.Vector3())), new THREE.LineBasicMaterial({ color: 0x2e86c1 }));
+    // stroppen: vier rondstroppen (geel polyester) als buizen
+    this.slings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8, 1, true), new THREE.MeshStandardMaterial({ color: 0xe0b020, roughness: 0.8 }), 4);
     this.slings.frustumCulled = false;
+    this.slings.castShadow = true;
     this.scene.add(this.slings);
     this.scene.add(this.fx.root);
 
@@ -189,20 +193,16 @@ export class World3D {
 
   /** Haakblok en kabelparten voor de bediende kraan. */
   private buildHookMeshes(): THREE.Group {
-    for (const r of this.ropes) {
-      this.scene.remove(r);
-      r.geometry.dispose();
+    if (this.rope) {
+      this.scene.remove(this.rope.mesh);
+      this.rope.dispose();
     }
-    this.ropes = [];
     const hook = buildHook(this.sim.hookW, this.sim.hookH);
     this.scene.add(hook);
+    // aantal kabelparten volgt de grootte van het haakblok
     const falls = this.sim.hookMassKg > 3000 ? 4 : this.sim.hookMassKg > 400 ? 2 : 1;
-    for (let i = 0; i < falls; i++) {
-      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x1d1f22 }));
-      l.frustumCulled = false;
-      this.ropes.push(l);
-      this.scene.add(l);
-    }
+    this.rope = new RopeMesh(falls, ropeRadius(this.sim.spec.gb.maxCapacityT));
+    this.scene.add(this.rope.mesh);
     return hook;
   }
 
@@ -213,9 +213,8 @@ export class World3D {
     if (!this.tower || !p) return;
     const hw = hookWidth(p.spec.gb.hookMassKg);
     const hook = buildHook(hw, hw * 1.4);
-    const rope = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x1d1f22 }));
-    rope.frustumCulled = false;
-    this.scene.add(hook, rope);
+    const rope = new RopeMesh(p.spec.gb.hookMassKg > 3000 ? 4 : 2, ropeRadius(p.spec.gb.maxCapacityT));
+    this.scene.add(hook, rope.mesh);
     this.parked = { model: this.crane, hook, rope };
     this.crane = this.tower;
     this.tower = null;
@@ -330,10 +329,7 @@ export class World3D {
       const tp = pk.geom.tip;
       const hh = this.parked.hook.position;
       hh.set(tp.x, tp.y - pk.crane.ropeLength, tp.z);
-      const rp = this.parked.rope.geometry.getAttribute('position') as THREE.BufferAttribute;
-      rp.setXYZ(0, tp.x, tp.y, tp.z);
-      rp.setXYZ(1, tp.x, hh.y + 0.3, tp.z);
-      rp.needsUpdate = true;
+      this.parked.rope.update(new THREE.Vector3(tp.x, tp.y, tp.z), new THREE.Vector3(tp.x, hh.y + 0.3, tp.z), pk.crane.ropeLength - 0.3, new THREE.Vector3(), dt);
     }
     this.world.update(t, sim.wind.x);
 
@@ -377,7 +373,6 @@ export class World3D {
     const pt = sim.prevTip;
     const tipI = new THREE.Vector3(lerp(pt.x, tip.x, alpha), lerp(pt.y, tip.y, alpha), lerp(pt.z, tip.z, alpha));
     let apex: THREE.Vector3;
-    const slingPos = this.slings.geometry.getAttribute('position') as THREE.BufferAttribute;
     if (sim.attached) {
       const b = sim.attached.cb.body;
       const p = lerpBody(sim.attached.id, b);
@@ -387,14 +382,19 @@ export class World3D {
       const hp = toWorld(p, b.apex.x, b.apex.y - sim.hookH);
       const topY = b.boxOffset.y + b.halfH;
       const dz = Math.min(b.depth, 6) * 0.4;
+      const sr = 0.025 + 0.01 * Math.cbrt(b.mass / 1000);
       let k = 0;
+      const m4 = new THREE.Matrix4();
       for (const lx of [-b.halfW * 0.8, b.halfW * 0.8]) {
         for (const z of [-dz, dz]) {
           const w = toWorld(p, b.boxOffset.x + lx, topY, z);
-          slingPos.setXYZ(k++, hp.x, hp.y, hp.z);
-          slingPos.setXYZ(k++, w.x, w.y, w.z);
+          const dir = w.clone().sub(hp);
+          const len = Math.max(1e-3, dir.length());
+          m4.compose(hp.clone().add(w).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.multiplyScalar(1 / len)), new THREE.Vector3(sr, len, sr));
+          this.slings.setMatrixAt(k++, m4);
         }
       }
+      this.slings.instanceMatrix.needsUpdate = true;
       this.slings.visible = true;
     } else {
       const hb = sim.hookBody!.body;
@@ -404,15 +404,11 @@ export class World3D {
       this.hook.quaternion.copy(p.q);
       this.slings.visible = false;
     }
-    slingPos.needsUpdate = true;
-    const n = this.ropes.length;
-    for (let i = 0; i < n; i++) {
-      const o = (i - (n - 1) / 2) * 0.09;
-      const pos = this.ropes[i].geometry.getAttribute('position') as THREE.BufferAttribute;
-      pos.setXYZ(0, tipI.x + o, tipI.y, tipI.z);
-      pos.setXYZ(1, apex.x + o, apex.y, apex.z);
-      pos.needsUpdate = true;
-    }
+    // kabel: werkelijke lengte (doorhang als hij slap is) en zijdelingse snelheid van de last t.o.v. de giekpunt
+    const rb = sim.ropeBody;
+    const lat = rb ? new THREE.Vector3(rb.vel.x - (tip.x - pt.x) * 60, 0, rb.vel.z - (tip.z - pt.z) * 60) : new THREE.Vector3();
+    const spreadAxis = new THREE.Vector3(-Math.sin(sim.crane.slew), 0, Math.cos(sim.crane.slew));
+    this.rope?.update(tipI, apex, sim.rope.length, lat, dt, Math.min(0.35, sim.hookW * 0.35), spreadAxis);
 
     // zones + labels
     const cam = this.rig.camera;
