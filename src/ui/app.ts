@@ -1234,7 +1234,10 @@ export class App {
           boomAngle: s.crane.boomAngle,
           boomLength: s.crane.boomLength,
           support: s.support.mode,
-          loads: s.loads.map((l) => ({ id: l.id, x: l.cb.body.pos.x, y: l.cb.body.pos.y, status: l.status })),
+          loads: s.loads.map((l) => ({ id: l.id, x: l.cb.body.pos.x, y: l.cb.body.pos.y, z: l.cb.body.pos.z, status: l.status })),
+          slew: s.crane.slew,
+          slewCenter: { x: s.geom.slewX, z: s.geom.slewZ },
+          zones: s.mission.zones.map((z) => ({ id: z.id, x: z.x, y: z.y, z: z.z ?? 0 })),
           warnings: s.warnings.top(3).map((w) => w.id),
         };
       },

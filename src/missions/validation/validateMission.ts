@@ -1,3 +1,4 @@
+import { lineX } from '../data/layout3d';
 import { CRANES } from '../../cranes/config/cranes';
 import type { CraneId } from '../../cranes/config/types';
 import { allowedCapacityT } from '../../cranes/models/capacity';
@@ -250,8 +251,12 @@ export function validateMission(m: MissionDef): MissionValidation {
       const zn = m.zones.find((z) => z.id === t.zoneId)!;
       const above = lt.height + lt.slingHeight + hd.h + spec.gb.ropeMin + 0.3;
       const massT = (lt.massKg + spec.gb.hookMassKg) / 1000;
-      lifts.push({ x: ls.x + (lt.comOffsetX ?? 0) * 0, heightNeeded: ls.y + above, massT, label: `${ls.id} oppakken`, extraCwT: extraCw });
-      lifts.push({ x: zn.x, heightNeeded: zn.y + above, massT, label: `${ls.id} neerzetten`, extraCwT: extraCw, transit: { from: ls.x, to: zn.x, stack: above } });
+      // rondom geplaatste punten: op hun straal vanaf de draaias (lijn-x)
+      const sx0 = m.crane.x + spec.gb.slewOffsetX;
+      const lx = lineX(sx0, ls.x, ls.z ?? 0);
+      const zx = lineX(sx0, zn.x, zn.z ?? 0);
+      lifts.push({ x: lx, heightNeeded: ls.y + above, massT, label: `${ls.id} oppakken`, extraCwT: extraCw });
+      lifts.push({ x: zx, heightNeeded: zn.y + above, massT, label: `${ls.id} neerzetten`, extraCwT: extraCw, transit: { from: lx, to: zx, stack: above } });
       if (t.effect?.type === 'addCounterweight') extraCw += t.effect.massT;
     }
     const plan = m.planning ?? {};

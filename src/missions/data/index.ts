@@ -1,6 +1,7 @@
 import { CHAPTER_1, CHAPTER_2, CHAPTER_3, CHAPTER_4 } from './chapters1to4';
 import { CHAPTER_5, CHAPTER_6, CHAPTER_7, CHAPTER_8 } from './chapters5to8';
 import type { ChapterDef, MissionDef } from './types';
+import { spreadAround } from './layout3d';
 
 export const CHAPTERS: ChapterDef[] = [
   { number: 1, title: 'Kraanmachinist worden', subtitle: 'Basistraining', requiresLicense: null, stage: 1 },
@@ -13,7 +14,7 @@ export const CHAPTERS: ChapterDef[] = [
   { number: 8, title: 'Heavy lift en eindproeven', subtitle: 'Specialistische eindproeven', requiresLicense: 'specialist', stage: 7 },
 ];
 
-export const MISSIONS: MissionDef[] = [...CHAPTER_1, ...CHAPTER_2, ...CHAPTER_3, ...CHAPTER_4, ...CHAPTER_5, ...CHAPTER_6, ...CHAPTER_7, ...CHAPTER_8];
+export const MISSIONS: MissionDef[] = [...CHAPTER_1, ...CHAPTER_2, ...CHAPTER_3, ...CHAPTER_4, ...CHAPTER_5, ...CHAPTER_6, ...CHAPTER_7, ...CHAPTER_8].map(spreadAround);
 
 export function getMission(id: string): MissionDef | undefined {
   return MISSIONS.find((m) => m.id === id);

@@ -178,8 +178,25 @@ class Bot {
     return done;
   }
 
+  /** Werkrichting (rad): de bot werkt langs deze straal; x-waarden in de 2D-logica zijn posities langs deze lijn. */
+  private aim = 0;
+
+  /** Positie langs de werkrichting (als x-coördinaat: draaias + afstand langs de straal). */
+  private along(p: { x: number; z?: number }): number {
+    const g = this.sim.geom;
+    return g.slewX + (p.x - g.slewX) * Math.cos(this.aim) + ((p.z ?? 0) - g.slewZ) * Math.sin(this.aim);
+  }
+
+  /** Richting vanaf de draaias naar een punt; ligt het punt vlak bij de as, dan de huidige richting. */
+  private angleTo(p: { x: number; z?: number }): number {
+    const g = this.sim.geom;
+    const dx = p.x - g.slewX;
+    const dz = (p.z ?? 0) - g.slewZ;
+    return Math.hypot(dx, dz) < 0.5 ? this.aim : Math.atan2(dz, dx);
+  }
+
   private slewTo(x: number, inp: CraneInput): boolean {
-    const desired = x >= this.sim.geom.slewX ? 0 : Math.PI;
+    const desired = x >= this.sim.geom.slewX ? this.aim : this.aim + Math.PI;
     const err = wrapAngle(desired - this.sim.crane.slew);
     inp.slew = this.servo('slew', err, 1, 0.0005);
     return Math.abs(err) < 0.002 && Math.abs(this.sim.crane.vel.slew) < 0.003;
@@ -191,22 +208,47 @@ class Bot {
     return Math.abs(err) < 0.08;
   }
 
-  /** Hoogste obstakel (bovenkant) tussen twee x-waarden in de werklijn. */
-  travelTop(x0: number, x1: number, pad: number): number {
-    const lo = Math.min(x0, x1) - pad;
-    const hi = Math.max(x0, x1) + pad;
+  /**
+   * Hoogste obstakel (bovenkant) in het gebied dat de last doorloopt: van positie x0 langs richting a0
+   * naar x1 langs richting a1 (een cirkelsector rond de draaias; zonder richtingen: de werklijn).
+   */
+  travelTop(x0: number, x1: number, pad: number, a0 = this.aim, a1 = this.aim): number {
+    const g = this.sim.geom;
+    const v0 = x0 - g.slewX;
+    let v1 = x1 - g.slewX;
+    let da = wrapAngle(a1 - a0);
+    // tegenover elkaar op één lijn door de draaias: de werklijn zelf (zoals de 2D-missies)
+    if (Math.abs(da) > Math.PI - 0.05) {
+      v1 = -v1;
+      da = 0;
+    } else if (Math.abs(da) < 0.05) da = 0;
+    const lo = Math.min(v0, v1) - pad;
+    const hi = Math.max(v0, v1) + pad;
+    const nA = Math.max(1, Math.ceil(Math.abs(da) * Math.max(Math.abs(lo), Math.abs(hi)) / 1.0));
+    const nR = Math.max(2, Math.ceil((hi - lo) / 0.5));
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= nA; i++) {
+      const a = a0 + (da * i) / nA;
+      const c = Math.cos(a);
+      const sn = Math.sin(a);
+      for (let j = 0; j <= nR; j++) {
+        const v = lo + ((hi - lo) * j) / nR;
+        pts.push([g.slewX + v * c, g.slewZ + v * sn]);
+      }
+    }
+    const zp = Math.max(1, pad);
+    const hit = (minX: number, maxX: number, minZ: number, maxZ: number) => pts.some(([x, z]) => x > minX - 0.25 && x < maxX + 0.25 && z > minZ - zp && z < maxZ + zp);
     let top = 0;
     for (const c of this.sim.colliders) {
       if (c.kind === 'ceiling') continue;
-      if (c.maxZ < -1 || c.minZ > 1) continue;
-      if (c.maxX < lo || c.minX > hi) continue;
-      top = Math.max(top, c.maxY);
+      if (c.maxY <= top || !hit(c.minX, c.maxX, c.minZ, c.maxZ)) continue;
+      top = c.maxY;
     }
     for (const l of this.sim.loads) {
       if (l === this.sim.attached || l.status === 'consumed') continue;
       const b = l.cb.body;
-      if (b.pos.x + b.halfW < lo || b.pos.x - b.halfW > hi) continue;
-      top = Math.max(top, b.pos.y + b.halfH);
+      if (b.pos.y + b.halfH <= top || !hit(b.pos.x - b.halfW, b.pos.x + b.halfW, b.pos.z - b.depth / 2, b.pos.z + b.depth / 2)) continue;
+      top = b.pos.y + b.halfH;
     }
     return top;
   }
@@ -348,9 +390,15 @@ class Bot {
     // wacht tot de taak actief is (volgorde)
     while (sim.tasks[idx].status === 'pending') yield emptyInput();
 
-    // 1. lege haak omhoog
+    // 1. lege haak omhoog (werkrichting: eerst naar de last, daarna naar de zone)
     const sp = sim.slingPoint(load);
-    const hookTravel = Math.max(sp.y + 0.6, this.travelTop(sim.hookPoint().x, sp.x, 1.5) + 2.0);
+    const aFrom = this.angleTo(sim.hookPoint());
+    const aLoad = this.angleTo(sp);
+    const aZone = this.angleTo(zone);
+    this.aim = aFrom;
+    const hookAlong = this.along(sim.hookPoint());
+    this.aim = aLoad;
+    const hookTravel = Math.max(sp.y + 0.6, this.travelTop(hookAlong, this.along(sp), 1.5, aFrom, aLoad) + 2.0);
     this.phase = 'haak omhoog';
     for (let k = 0; k < 60 * 40; k++) {
       const i = emptyInput();
@@ -360,7 +408,8 @@ class Bot {
 
     // 2. tip boven het hijspunt
     this.phase = 'naar de last';
-    yield* this.moveTipTo(sp.x, hookTravel + hookH + ropeMin + 0.5, () => sim.hookPoint().y < hookTravel - 0.5 ? hookTravel : undefined, carry);
+    yield* this.moveTipTo(this.along(sp), hookTravel + hookH + ropeMin + 0.5, () => sim.hookPoint().y < hookTravel - 0.5 ? hookTravel : undefined, carry);
+    this.aim = this.angleTo(sim.slingPoint(load));
 
     // 3. haak laten zakken en aanslaan
     this.phase = 'aanslaan';
@@ -368,9 +417,9 @@ class Bot {
     for (let k = 0; k < 60 * lowerSecs && !sim.attached; k++) {
       const i = emptyInput();
       const p = sim.slingPoint(load);
-      this.keepTipOver(p.x, i);
+      this.keepTipOver(this.along(p), i);
       this.hoistTo(p.y + 0.15, i, 0.6);
-      if (sim.attachCandidate() === load && Math.abs(sim.geom.tip.x - p.x) < 0.3) {
+      if (sim.attachCandidate() === load && Math.abs(this.along(sim.geom.tip) - this.along(p)) < 0.3) {
         sim.toggleRigging();
         break;
       }
@@ -383,15 +432,19 @@ class Bot {
 
     // 4. heffen tot boven alle obstakels tussen hier en de zone
     // marge boven obstakels: ruim waar het kan, maar binnen wat de kraan op beide stralen (en onder een dak) haalt
-    const top = this.travelTop(load.cb.body.pos.x, zone.x, lt.width / 2 + 0.1);
-    const reachTop = Math.min(this.maxTipHeight(Math.abs(load.cb.body.pos.x - sim.geom.slewX)), this.maxTipHeight(Math.abs(zone.x - sim.geom.slewX)), this.ceilingY() - 1.0);
+    const loadAlong = this.along(load.cb.body.pos);
+    this.aim = aZone;
+    const zoneAlong = this.along(zone);
+    this.aim = aLoad;
+    const top = this.travelTop(loadAlong, zoneAlong, lt.width / 2 + 0.1, aLoad, aZone);
+    const reachTop = Math.min(this.maxTipHeight(this.polar(load.cb.body.pos.x, load.cb.body.pos.z).u), this.maxTipHeight(this.polar(zone.x, zone.z ?? 0).u), this.ceilingY() - 1.0);
     const maxBottom = reachTop - 0.45 - ropeMin - hookH - lt.slingHeight - lt.height;
     const clear = Math.max(top + 0.3, Math.min(top + 2.5, maxBottom));
     const hookY = clear + lt.height + lt.slingHeight;
     this.phase = 'heffen';
     // recht omhoog: eerst de lier; staat de kabel op zijn kortst, dan de giekpunt verticaal optillen (zelfde straal)
     const u0 = Math.abs(sim.geom.tipU);
-    const x0 = sim.geom.tip.x;
+    const x0 = this.along(sim.geom.tip);
     const liftSecs = 120 + Math.abs(hookY - sim.hookPoint().y) / (this.gb.hoistSpeed * 0.25);
     for (let k = 0; k < 60 * liftSecs; k++) {
       const i = emptyInput();
@@ -412,21 +465,26 @@ class Bot {
 
     // 5. naar de zone: bij de zone hoeft de tip alleen hoog genoeg te zijn voor de obstakels daar
     this.phase = 'naar de zone';
-    const nearTop = Math.max(zone.y, this.travelTop(zone.x, zone.x, lt.width / 2 + 0.1));
+    this.aim = aZone;
+    let zx = this.along(zone);
+    const nearTop = Math.max(zone.y, this.travelTop(zx, zx, lt.width / 2 + 0.1));
     const destY = Math.min(hookY, nearTop + 0.5 + lt.height + lt.slingHeight);
     // liefst op transporthoogte naar de zone; alleen als dat daar niet kan, op de (lagere) hoogte die de zone vraagt
     const transitTip = hookY + hookH + ropeMin + 0.4;
-    const uZone = Math.abs(zone.x - sim.geom.slewX);
+    const uZone = Math.abs(zx - sim.geom.slewX);
     const yTarget = this.solve(uZone, transitTip) ? transitTip : destY + hookH + ropeMin + 0.4;
-    yield* this.moveTipTo(zone.x, yTarget, () => Math.min(hookY, sim.geom.tipHeight - ropeMin - hookH - 0.2), carry);
+    yield* this.moveTipTo(zx, yTarget, () => Math.min(hookY, sim.geom.tipHeight - ropeMin - hookH - 0.2), carry);
+    // na eventueel rijden: werkrichting en zonepositie opnieuw
+    this.aim = this.angleTo(zone);
+    zx = this.along(zone);
 
     // 6. uitslingeren
     this.phase = 'uitslingeren';
     for (let k = 0; k < 60 * 60; k++) {
       const i = emptyInput();
-      this.keepTipOver(this.tipTargetFor(load, zone.x), i);
+      this.keepTipOver(this.tipTargetFor(load, zx), i);
       this.hoistTo(hookY, i);
-      if (sim.swayDeg < 0.4 && Math.abs(load.cb.body.vel.x) < 0.03) break;
+      if (sim.swayDeg < 0.4 && Math.abs(load.cb.body.vel.x * Math.cos(this.aim) + load.cb.body.vel.z * Math.sin(this.aim)) < 0.03) break;
       yield i;
     }
 
@@ -438,7 +496,7 @@ class Bot {
       const i = emptyInput();
       const bc = loadBottomCenter(load.cb.body);
       const resting = load.cb.supports.size > 0 || load.cb.body.sleeping;
-      if (resting && Math.abs(bc.x - zone.x) > zone.tolerance * 0.85 && retries < 4) {
+      if (resting && Math.abs(this.along(bc) - zx) > zone.tolerance * 0.85 && retries < 4) {
         retries++;
         this.phase = `neerzetten (correctie ${retries})`;
         const up = sim.hookPoint().y + 0.8;
@@ -447,23 +505,23 @@ class Bot {
           if (this.hoistTo(up, j)) break;
           yield j;
         }
-        this.offF = loadBottomCenter(load.cb.body).x - sim.geom.tip.x;
+        this.offF = this.along(loadBottomCenter(load.cb.body)) - this.along(sim.geom.tip);
         for (let q = 0; q < 60 * 40; q++) {
           const j = emptyInput();
-          this.keepTipOver(this.tipTargetFor(load, zone.x), j);
+          this.keepTipOver(this.tipTargetFor(load, zx), j);
           this.hoistTo(up, j);
-          if (q > 120 && sim.swayDeg < 0.3 && Math.abs(loadBottomCenter(load.cb.body).x - zone.x) < zone.tolerance * 0.4) break;
+          if (q > 120 && sim.swayDeg < 0.3 && Math.abs(this.along(loadBottomCenter(load.cb.body)) - zx) < zone.tolerance * 0.4) break;
           yield j;
         }
         continue;
       }
-      this.keepTipOver(this.tipTargetFor(load, zone.x), i);
+      this.keepTipOver(this.tipTargetFor(load, zx), i);
       const above = bc.y - zone.y;
       const settled = sim.swayDeg < 0.6;
       // de laatste meters (en vlak boven obstakels bij de zone) pas zakken als de last stil hangt en uitgelijnd is
-      const sideTop = Math.max(zone.y, this.travelTop(zone.x, zone.x, lt.width / 2 + 1.5));
+      const sideTop = Math.max(zone.y, this.travelTop(zx, zx, lt.width / 2 + 1.5));
       const aboveSide = bc.y - sideTop;
-      const aligned = Math.abs(bc.x - zone.x) < Math.min(zone.tolerance * 0.6, 0.25) && sim.swayDeg < 1.0;
+      const aligned = Math.abs(this.along(bc) - zx) < Math.min(zone.tolerance * 0.6, 0.25) && sim.swayDeg < 1.0;
       const resting0 = load.cb.supports.size > 0 || load.cb.body.sleeping;
       if (!resting0 && !aligned && (aboveSide < 1.2 || above < 1.2)) {
         i.hoist = aboveSide < 0.6 ? this.servo('hoist', 0.6 - aboveSide, 0.4, 0.02) : 0;
@@ -666,7 +724,7 @@ class Bot {
    */
   private tipTargetFor(load: LoadRuntime, x: number): number {
     const b = load.cb.body;
-    const off = loadBottomCenter(b).x - this.sim.geom.tip.x;
+    const off = this.along(loadBottomCenter(b)) - this.along(this.sim.geom.tip);
     // filtertijd minstens één slingerperiode, anders volgt de schatting de slinger zelf
     const tip = this.sim.geom.tip;
     const period = 2 * Math.PI * Math.sqrt(Math.max(1, tip.y - loadBottomCenter(b).y) / 9.81);
@@ -748,12 +806,16 @@ class Bot {
   }
 
   /** Verplaats de tip naar boven x met minimale tiphoogte; rijdt eerst indien nodig (pick-and-carry). */
-  private *moveTipTo(x: number, yMin: number, hookHold: () => number | undefined, carry: boolean): Generator<CraneInput> {
+  private *moveTipTo(x0: number, yMin: number, hookHold: () => number | undefined, carry: boolean): Generator<CraneInput> {
     const sim = this.sim;
+    let x = x0;
     let u = Math.abs(x - sim.geom.slewX);
     let target = this.solve(u, yMin);
     if ((!target || carry) && sim.spec.gb.driveSpeed > 0 && carry) {
-      const bx = this.carryBase(x);
+      // rijden gaat langs x: positie langs de werkrichting terug naar een wereldpunt
+      const wx = sim.geom.slewX + (x - sim.geom.slewX) * Math.cos(this.aim);
+      const wz = sim.geom.slewZ + (x - sim.geom.slewX) * Math.sin(this.aim);
+      const bx = this.carryBase(wx);
       if (bx !== null && Math.abs(bx - sim.crane.baseX) > 0.2) {
         const prev = this.phase;
         this.phase = `${prev} (rijden)`;
@@ -765,6 +827,9 @@ class Bot {
           yield i;
         }
         this.phase = prev;
+        // na het rijden: werkrichting en positie opnieuw bepalen
+        this.aim = this.angleTo({ x: wx, z: wz });
+        x = this.along({ x: wx, z: wz });
         u = Math.abs(x - sim.geom.slewX);
         target = this.solve(u, yMin);
       }
@@ -791,12 +856,17 @@ class Bot {
       const hh = hookHold();
       if (hh !== undefined) this.hoistTo(hh, i);
       const slewed = this.slewTo(x, i);
-      const reached = this.drive(slewed ? target : slewTarget, i, slewed ? 0.7 : 0.5);
+      let goal = slewed ? target : slewTarget;
+      // met last naar buiten: eerst uitschuiven, dan pas de giek laten zakken (de last zakt dan niet tussendoor)
+      if (sim.attached && goal.boomLength !== undefined && goal.boomAngle !== undefined && goal.boomLength > sim.crane.boomLength + 0.3 && goal.boomAngle < sim.crane.boomAngle) {
+        goal = { ...goal, boomAngle: sim.crane.boomAngle };
+      }
+      const reached = this.drive(goal, i, slewed ? 0.7 : 0.5) && goal === (slewed ? target : slewTarget);
       if (slewed && reached) return;
       if (sim.outcome !== 'running') return;
       yield i;
     }
-    if (Math.abs(sim.geom.tip.x - x) > 0.5) yield* this.giveUp(`kon de giekpunt niet boven x = ${x.toFixed(1)} krijgen (begrenzer: ${JSON.stringify(sim.lastControl.blocked)})`);
+    if (Math.abs(this.along(sim.geom.tip) - x) > 0.5) yield* this.giveUp(`kon de giekpunt niet boven x = ${x.toFixed(1)} krijgen (begrenzer: ${JSON.stringify(sim.lastControl.blocked)})`);
   }
 }
 

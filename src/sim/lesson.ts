@@ -31,6 +31,15 @@ interface LessonStep {
 const firstLoad = (sim: Simulation) => sim.loads[0];
 const firstZone = (sim: Simulation) => sim.mission.zones[0];
 
+/** Hoekverschil (rad) tussen de giekrichting en de richting naar het eerste afzetvak. */
+function slewError(sim: Simulation): number {
+  const z = firstZone(sim);
+  if (!z) return 0;
+  const want = Math.atan2((z.z ?? 0) - sim.geom.slewZ, z.x - sim.geom.slewX);
+  const d = want - sim.crane.slew;
+  return Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+}
+
 const FIRST_LIFT: LessonStep[] = [
   {
     id: 'intro',
@@ -63,6 +72,16 @@ const FIRST_LIFT: LessonStep[] = [
     id: 'hoist',
     text: (k) => `Hijs op met ${k('hoistUp')} tot de pallet een meter of drie hoog hangt. Over de afzetting heen.`,
     done: (s) => !!s.attached && loadBottomCenter(s.attached.cb.body).y > 2.6,
+  },
+  {
+    id: 'slew',
+    text: (k) => `Nu zwenken: met ${k('slewLeft')} en ${k('slewRight')} draai je de bovenwagen tot de giek naar het groene vak wijst. Rustig beginnen en op tijd afremmen.`,
+    skip: (s) => slewError(s) < 0.03,
+    done: (s) => slewError(s) < 0.03 && Math.abs(s.crane.vel.slew) < 0.02,
+    marker: (s) => {
+      const z = firstZone(s);
+      return z ? { kind: 'ring', x: z.x, y: z.y, z: z.z ?? 0, r: z.tolerance + 0.4 } : null;
+    },
   },
   {
     id: 'tele',

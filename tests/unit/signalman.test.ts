@@ -23,7 +23,8 @@ describe('signaalgever', () => {
     run(sim, 60, () => { const i = steerTip(sim, sp.x, sim.geom.tipHeight); hoistTo(sim, i, sp.y + 0.2); return i; }, () => sim.attachCandidate() === load);
     sim.toggleRigging();
     const zone = sim.mission.zones[0];
-    run(sim, 40, () => { const i = steerTip(sim, zone.x, sim.geom.tipHeight, 0.3); hoistTo(sim, i, 5.5); return i; }, () => Math.abs(sim.geom.tip.x - zone.x) < 0.05 && sim.swayDeg < 0.5);
+    const zz = zone.z ?? 0;
+    run(sim, 60, () => { const i = steerTip(sim, zone.x, sim.geom.tipHeight, 0.3, zz); hoistTo(sim, i, 5.5); return i; }, () => Math.hypot(sim.geom.tip.x - zone.x, sim.geom.tip.z - zz) < 0.05 && sim.swayDeg < 0.5);
     const sm = new Signalman();
     const calls: string[] = [];
     for (let k = 0; k < 60 * 6; k++) {

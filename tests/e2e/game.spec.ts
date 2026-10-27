@@ -12,9 +12,16 @@ type State = {
   paused: boolean;
   time: number;
   ropeLength: number;
-  loads: { id: string; x: number; y: number; status: string }[];
+  loads: { id: string; x: number; y: number; z: number; status: string }[];
   support: string;
+  slew: number;
+  slewCenter: { x: number; z: number };
+  zones: { id: string; x: number; y: number; z: number }[];
 };
+
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+const slewErr = (s: State) => wrap(Math.atan2(s.zones[0].z - s.slewCenter.z, s.zones[0].x - s.slewCenter.x) - s.slew);
+const radiusErr = (s: State) => Math.hypot(s.zones[0].x - s.slewCenter.x, s.zones[0].z - s.slewCenter.z) - Math.hypot(s.tip.x - s.slewCenter.x, s.tip.z - s.slewCenter.z);
 
 const state = (page: Page) => page.evaluate(() => (window as unknown as { __crane: { state(): unknown } }).__crane.state() as State);
 
@@ -95,10 +102,30 @@ test('missie 1 met het toetsenbord voltooien en beloning ontvangen', async ({ pa
   expect(s.attached).toBe('p1');
   // hijsen tot ruim boven de afzetting
   s = await holdUntil(page, 'KeyE', (st) => st.loads[0].y > 4.0);
-  // telescoop uit tot boven de zone (x = 11,5)
-  s = await holdUntil(page, 'KeyR', (st) => st.tip.x > 10.9);
+  // zwenken naar het afzetvak: welke toets welke kant op draait volgt uit een korte tik
+  const s0 = await state(page);
+  await page.keyboard.down('KeyD');
+  await page.waitForTimeout(400);
+  await page.keyboard.up('KeyD');
+  const dPos = (await state(page)).slew > s0.slew;
+  const err0 = slewErr(await state(page));
+  const key = err0 > 0 === dPos ? 'KeyD' : 'KeyA';
+  s = await holdUntil(page, key, (st) => Math.abs(slewErr(st)) < 0.12 || Math.sign(slewErr(st)) !== Math.sign(err0));
+  // fijn bijstellen met Shift, zo nodig een paar keer heen en weer (zoals een speler doet)
   await page.keyboard.down('ShiftLeft');
-  s = await holdUntil(page, 'KeyR', (st) => st.tip.x > 11.45);
+  for (let n = 0; n < 8; n++) {
+    await page.waitForTimeout(600);
+    s = await state(page);
+    const e = slewErr(s);
+    if (Math.abs(e) < 0.012) break;
+    const k = e > 0 === dPos ? 'KeyD' : 'KeyA';
+    s = await holdUntil(page, k, (st) => Math.abs(slewErr(st)) < 0.008 || Math.sign(slewErr(st)) !== Math.sign(e), 8000);
+  }
+  await page.keyboard.up('ShiftLeft');
+  // telescoop uit tot boven de zone
+  s = await holdUntil(page, 'KeyR', (st) => radiusErr(st) < 0.6);
+  await page.keyboard.down('ShiftLeft');
+  s = await holdUntil(page, 'KeyR', (st) => radiusErr(st) < 0.05);
   await page.keyboard.up('ShiftLeft');
   // laten uitslingeren
   s = await waitFor(page, (st) => st.sway < 0.6, 40_000);
@@ -107,7 +134,7 @@ test('missie 1 met het toetsenbord voltooien en beloning ontvangen', async ({ pa
   await page.keyboard.down('ShiftLeft');
   s = await holdUntil(page, 'KeyQ', (st) => st.outcome !== 'running', 30_000);
   await page.keyboard.up('ShiftLeft');
-  expect(s.outcome).toBe('success');
+  expect(s.outcome, JSON.stringify({ slewErr: slewErr(s), radiusErr: radiusErr(s), load: s.loads[0], zone: s.zones[0], tip: s.tip, warnings: (s as unknown as { warnings: string[] }).warnings })).toBe('success');
   await expect(page.getByTestId('result-success')).toBeVisible({ timeout: 10_000 });
   const money1 = await page.evaluate(() => (window as unknown as { __crane: { save(): { money: number } } }).__crane.save().money);
   expect(money1).toBeGreaterThan(money0);
