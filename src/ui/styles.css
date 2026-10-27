@@ -151,7 +151,7 @@ table.chart td.bad { color: #ff8f84; }
 .hud-data .lmi .bar { background: #18231c; }
 .hud:not(.has-load) .hud-data .dgrid > :nth-child(n + 5) { display: none; }
 .hud:not(.has-load) .hud-data .lmi { display: none; }
-.hud:not(.has-load) .hud-data::after { content: 'Geen last aan de haak'; display: block; margin-top: 0.4em; font-family: var(--mono); font-size: 0.75em; color: #6fa883; }
+.hud:not(.has-load) .hud-data::after { content: attr(data-empty); display: block; margin-top: 0.4em; font-family: var(--mono); font-size: 0.75em; color: #6fa883; }
 .hud:not(.setup-focus) .hud-side .outriggers-wrap { display: none; }
 .hud:not(.setup-focus) .hud-side .planview { display: none; }
 .hud:not(.setup-focus) .hud-side h4.plan-title { display: none; }

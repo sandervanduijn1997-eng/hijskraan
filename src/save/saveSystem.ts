@@ -1,3 +1,4 @@
+import type { Lang } from '../i18n/i18n';
 import { CRANE_IDS } from '../cranes/config/cranes';
 import type { CraneId, LicenseId, UpgradeId } from '../cranes/config/types';
 import type { DifficultyId } from '../sim/difficulty';
@@ -61,6 +62,8 @@ export interface Settings {
   depthAid: boolean;
   /** Signaalgever via de portofoon: gesproken, alleen tekst of uit. */
   signalman: 'voice' | 'text' | 'off';
+  /** Taal van de interface en de portofoon. */
+  language: Lang;
   /** Grafische kwaliteit (laag, middel, hoog, ultra). */
   graphics: 'low' | 'medium' | 'high' | 'ultra';
   /** Sticks en oplopende toetsen. */
@@ -105,6 +108,7 @@ export const defaultSettings = (): Settings => ({
   depthAid: true,
   signalman: 'voice',
   graphics: 'high',
+  language: 'nl',
   analog: defaultAnalog(),
   bindings: structuredClone(DEFAULT_BINDINGS),
 });
@@ -194,6 +198,7 @@ export function sanitizeSave(raw: unknown): { data: SaveData; repaired: boolean 
       const d = defaultAnalog();
       return { deadzone: num(a.deadzone, d.deadzone, 0, 0.4), curve: num(a.curve, d.curve, 1, 3), keyRamp: num(a.keyRamp, d.keyRamp, 0, 2.5), invertHoist: bool(a.invertHoist, d.invertHoist) };
     })(),
+    language: (['nl', 'en', 'de'] as const).includes(s.language as Lang) ? (s.language as Lang) : 'nl',
     graphics: (['low', 'medium', 'high', 'ultra'] as const).includes(s.graphics as 'low') ? (s.graphics as Settings['graphics']) : 'high',
     bindings: structuredClone(DEFAULT_BINDINGS),
   };

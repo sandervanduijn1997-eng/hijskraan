@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/i18n';
 import { levelFor } from '../../career/career';
 import { outriggerPad } from '../../cranes/controllers/craneController';
 import { hasSetupProcedure, setupStageLabel } from '../../cranes/models/kinematics';
@@ -92,7 +93,7 @@ export class Hud {
       ),
       h(
         'div',
-        { class: 'hud-data box' },
+        { class: 'hud-data box', 'data-empty': tr('Geen last aan de haak') },
         h('h4', null, 'Lastmomentbegrenzer'),
         E('lmicfg', 'lmi-cfg'),
         h('div', { class: 'dgrid' }, ...row('Toegestaan', 'cap'), ...row('Werkstraal', 'radius'), ...row('Lastgewicht', 'load'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres'), ...row('Aanslag', 'rig'), ...row('Bodemdruk', 'ground'), ...row('Collega', 'partner')),
@@ -133,11 +134,11 @@ export class Hud {
   /** Instructie van de instructeur (blijft staan tot de volgende stap); null = verbergen. */
   lesson(text: string | null): void {
     this.el.lesson.style.display = text ? '' : 'none';
-    if (text) this.el.lesson.textContent = `🎓 Instructeur: ${text}`;
+    if (text) this.el.lesson.textContent = `🎓 ${tr('Instructeur')}: ${tr(text)}`;
   }
 
   radio(text: string): void {
-    this.el.radio.textContent = `📻 Signaalgever: ${text}`;
+    this.el.radio.textContent = `📻 ${tr('Signaalgever')}: ${tr(text)}`;
     this.el.radio.style.display = '';
     window.clearTimeout(this.radioTimer);
     this.radioTimer = window.setTimeout(() => (this.el.radio.style.display = 'none'), 3200);

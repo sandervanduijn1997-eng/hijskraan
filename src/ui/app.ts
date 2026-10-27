@@ -1,3 +1,6 @@
+import '../i18n/index';
+import type { Lang } from '../i18n/i18n';
+import { LANGS, setLang, speechLang, tr } from '../i18n/i18n';
 import { audio } from '../audio/audioEngine';
 import { LICENSE_LABELS, isChapterUnlocked, isCompleted, isMissionUnlocked, levelFor, nextMission, totalStars } from '../career/career';
 import { CRANES, CRANE_IDS, getCrane } from '../cranes/config/cranes';
@@ -88,9 +91,9 @@ function speak(text: string): void {
   try {
     const synth = window.speechSynthesis;
     if (!synth) return;
-    const u = new SpeechSynthesisUtterance(text.replace(/…/g, ', '));
-    u.lang = 'nl-NL';
-    const v = synth.getVoices().find((vv) => vv.lang?.toLowerCase().startsWith('nl'));
+    const u = new SpeechSynthesisUtterance(tr(text).replace(/…/g, ', '));
+    u.lang = speechLang();
+    const v = synth.getVoices().find((vv) => vv.lang?.toLowerCase().startsWith(speechLang().slice(0, 2)));
     if (v) u.voice = v;
     u.rate = 1.05;
     u.pitch = 0.9;
@@ -123,6 +126,7 @@ export class App {
   constructor(private host: Host3D, private storage: StorageLike, loadStatus?: (s: string) => void) {
     const res = loadGame(storage);
     this.save = res.data;
+    setLang(this.save.settings.language);
     this.telemetry = new Telemetry(storage);
     window.addEventListener('pagehide', () => this.telemetry.end('quit'));
     loadStatus?.(res.status);
@@ -1005,7 +1009,7 @@ export class App {
       const b = h('button', { class: 'btn small', 'data-testid': `bind-${a}` }, s.bindings[a].map(keyLabel).join(' / '));
       b.addEventListener('click', () => {
         b.classList.add('listening');
-        b.textContent = 'druk een toets…';
+        b.textContent = tr('druk een toets…');
         const onKey = (e: KeyboardEvent) => {
           e.preventDefault();
           e.stopPropagation();
@@ -1061,11 +1065,21 @@ export class App {
       s.signalman = sigSel.value as typeof s.signalman;
       this.persist();
     });
+    // taal: direct toepassen en het scherm opnieuw opbouwen (de HUD wordt bij het volgende frame opnieuw gemaakt)
+    const langSel = h('select', { id: 'set-language', 'data-testid': 'set-language' }, ...LANGS.map((l) => h('option', { value: l.id, selected: s.language === l.id }, l.label))) as HTMLSelectElement;
+    langSel.addEventListener('change', () => {
+      s.language = langSel.value as Lang;
+      setLang(s.language);
+      this.persist();
+      this.hud?.root.remove();
+      this.hud = null;
+      this.showSettings(inGame);
+    });
     const content = h(
       'div',
       { class: 'settings' },
       h('section', { class: 'panel' }, h('h3', null, 'Audio'), slider('Mastervolume', s.masterVolume, (v) => (s.masterVolume = v)), slider('Muziek', s.musicVolume, (v) => (s.musicVolume = v)), slider('Geluidseffecten', s.sfxVolume, (v) => (s.sfxVolume = v)), !audio.available ? h('p', { class: 'muted' }, 'Audio start na de eerste klik of toetsaanslag.') : null),
-      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('label', { class: 'line' }, 'Signaalgever (portofoon)', sigSel), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), toggle('Dieptehulp bij hijsen (loodlijn, voetafdruk, hoogte)', s.depthAid, (v) => (s.depthAid = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
+      h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Taal / Language / Sprache', langSel), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('label', { class: 'line' }, 'Signaalgever (portofoon)', sigSel), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), toggle('Dieptehulp bij hijsen (loodlijn, voetafdruk, hoogte)', s.depthAid, (v) => (s.depthAid = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
       analogPanel,
       this.telemetryPanel(),
       h('section', { class: 'panel' }, h('h3', null, 'Besturing'), h('p', { class: 'muted', style: 'font-size:.85em' }, 'Klik op een toets om die te wijzigen. Esc annuleert.'), binds, h('button', { class: 'btn small', style: 'margin-top:.6em', onclick: () => { s.bindings = structuredClone(DEFAULT_BINDINGS); this.input.setBindings(s.bindings); this.persist(); this.showSettings(inGame); } }, 'Standaardbesturing herstellen')),
@@ -1078,7 +1092,7 @@ export class App {
   /** Speeltestgegevens: alleen lokaal; de speler exporteert ze zelf als JSON voor het speeltestverslag. */
   private telemetryPanel(): HTMLElement {
     const count = h('span', { class: 'muted' }, '');
-    const refresh = () => (count.textContent = `${this.telemetry.all().length} gespeelde missies opgeslagen`);
+    const refresh = () => (count.textContent = tr(`${this.telemetry.all().length} gespeelde missies opgeslagen`));
     refresh();
     const exportBtn = h('button', { class: 'btn small', 'data-testid': 'telemetry-export' }, 'Exporteren (JSON)');
     exportBtn.addEventListener('click', () => {
@@ -1159,7 +1173,7 @@ export class App {
     const preview = () => {
       const cap = lmiCapacityT(spec, sim.crane, { ...cfg, configured: true });
       const real = actualCapacityT(spec, sim.crane, sim.parts);
-      out.textContent = `Begrenzer laat op ${sim.geom.radius.toFixed(1)} m toe: ${cap.toFixed(1)} t`;
+      out.textContent = tr(`Begrenzer laat op ${sim.geom.radius.toFixed(1)} m toe: ${cap.toFixed(1)} t`);
       out.classList.toggle('danger', cap > real + 0.05);
     };
     const close = () => {
@@ -1439,7 +1453,7 @@ export class App {
         ...probs.map((p) => h('div', { class: 'warn' }, '⚠ ' + p)),
       );
       out.classList.toggle('danger', probs.length > 0);
-      confirm.textContent = probs.length ? 'Toch aanslaan' : 'Aanslaan';
+      confirm.textContent = tr(probs.length ? 'Toch aanslaan' : 'Aanslaan');
     };
     const close = () => {
       this.closeOverlay();

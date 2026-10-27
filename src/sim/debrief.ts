@@ -34,7 +34,9 @@ const TIPS: Record<keyof typeof SCORE_WEIGHTS, (m: ScoreMetrics) => string> = {
   precision: () => 'De plaatsing was niet nauwkeurig. Stop een halve meter boven de plek, laat de last uitslingeren en zak het laatste stuk met precisie (Shift).',
   time: () => 'Je deed er lang over. Combineer bewegingen: zwenk en schuif tegelijk uit zodra de last hoog genoeg hangt, en rem op tijd af in plaats van te corrigeren.',
   sway: (m) => `De last slingerde tot ${m.maxSwayDeg.toFixed(0)}°. Begin en stop elke beweging geleidelijk, en volg de slinger kort mee met de giek om hem te dempen.`,
-  collisions: (m) => `Je raakte ${m.collisions > 1 ? `${m.collisions}× ` : ''}iets. Hijs eerst ruim boven alles wat in de weg staat en zwenk pas daarna; let in de herhaling op het moment van de eerste botsing.`,
+  collisions: (m) =>
+    (m.collisions > 1 ? `Je raakte ${m.collisions}× iets.` : 'Je raakte iets.') +
+    ' Hijs eerst ruim boven alles wat in de weg staat en zwenk pas daarna; let in de herhaling op het moment van de eerste botsing.',
   damage: () => 'De last liep schade op. Zet rustiger neer: de laatste 30 cm met precisie en volle toets, niet met korte rukken.',
   config: () => 'De configuratie was niet ideaal. Kijk in de planning naar het lastdiagram: kies de kleinste opstelling die de last nog met marge haalt.',
   efficiency: () => 'Er ging veel brandstof in zitten. Laat de motor niet hoog draaien als je wacht, en maak minder correctiebewegingen.',

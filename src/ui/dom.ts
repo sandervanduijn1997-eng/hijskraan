@@ -1,4 +1,6 @@
-/** Minimale DOM-helpers (geen framework). */
+import { tr } from '../i18n/i18n';
+
+/** Minimale DOM-helpers (geen framework). Tekst wordt bij het tonen vertaald (zie i18n). */
 type Child = Node | string | number | null | undefined | false;
 type Attrs = Record<string, unknown> & { class?: string; style?: string; onclick?: (e: MouseEvent) => void };
 
@@ -12,12 +14,13 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs | 
       else if (k === 'style') el.setAttribute('style', String(v));
       else if (k === 'html') el.innerHTML = String(v);
       else if (v === true) el.setAttribute(k, '');
+      else if (k === 'title' || k === 'placeholder' || k === 'aria-label') el.setAttribute(k, tr(String(v)));
       else el.setAttribute(k, String(v));
     }
   }
   for (const c of children.flat()) {
     if (c === null || c === undefined || c === false) continue;
-    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    el.append(c instanceof Node ? c : document.createTextNode(typeof c === 'string' ? tr(c) : String(c)));
   }
   return el;
 }
@@ -34,7 +37,8 @@ export function kbd(label: string): HTMLElement {
 
 /** Zet tekst alleen als die verandert (voorkomt onnodige reflows in de HUD-lus). */
 export function setText(el: HTMLElement, t: string): void {
-  if (el.textContent !== t) el.textContent = t;
+  const v = tr(t);
+  if (el.textContent !== v) el.textContent = v;
 }
 
 export function setClass(el: HTMLElement, cls: string): void {

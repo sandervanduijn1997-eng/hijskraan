@@ -1,3 +1,4 @@
+import { tr } from '../i18n/i18n';
 import * as THREE from 'three';
 import { audio } from '../audio/audioEngine';
 import type { CraneInput } from '../cranes/controllers/craneInput';
@@ -214,7 +215,7 @@ export class World3D {
       this.scene.add(marker.root);
       const el = document.createElement('div');
       el.className = 'zone-label';
-      el.textContent = z.label;
+      el.textContent = tr(z.label);
       labelRoot.append(el);
       this.labels.push(el);
     }
