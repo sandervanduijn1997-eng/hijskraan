@@ -95,7 +95,7 @@ export class Hud {
         { class: 'hud-data box' },
         h('h4', null, 'Lastmomentbegrenzer'),
         E('lmicfg', 'lmi-cfg'),
-        h('div', { class: 'dgrid' }, ...row('Toegestaan', 'cap'), ...row('Werkstraal', 'radius'), ...row('Lastgewicht', 'load'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres'), ...row('Aanslag', 'rig'), ...row('Bodemdruk', 'ground')),
+        h('div', { class: 'dgrid' }, ...row('Toegestaan', 'cap'), ...row('Werkstraal', 'radius'), ...row('Lastgewicht', 'load'), ...row('Giekhoek', 'angle'), ...row('Gieklengte', 'length'), ...row('Haakhoogte', 'hookH'), ...row('Kabellengte', 'rope'), ...row('Contragewicht', 'cw'), ...row('Motor', 'rpm'), ...row('Hydrauliek', 'pres'), ...row('Aanslag', 'rig'), ...row('Bodemdruk', 'ground'), ...row('Collega', 'partner')),
         h(
           'div',
           { class: 'lmi' },
@@ -237,6 +237,9 @@ export class Hud {
       setText(this.el.ground, `${Math.round(sim.padPressure[wi])}/${Math.round(sim.padAllowed[wi])} t/m²${sim.mats === 'none' ? '' : ' · mat'}`);
       setClass(this.el.ground, r > 1 ? 'v bad' : 'v');
     } else setText(this.el.ground, '—');
+    const pt = sim.partner;
+    setText(this.el.partner, pt ? (pt.attached ? `${Math.round(pt.loadPct)} % · ${pt.tensionT.toFixed(1)} t` : 'wacht op aanslaan') : '—');
+    setClass(this.el.partner, pt && pt.loadPct > 100 ? 'v bad' : 'v');
     const aanslag = sim.attached ? sim.rig : null;
     setText(this.el.rig, aanslag?.choice ? `${Math.round(sim.rigPct)} % · ${Math.round((aanslag.angle * 180) / Math.PI)}°` : sim.attached ? 'standaard' : '—');
     setClass(this.el.rig, aanslag?.choice && sim.rigPct > 100 ? 'v bad' : 'v');

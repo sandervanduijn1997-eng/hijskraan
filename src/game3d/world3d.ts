@@ -25,6 +25,9 @@ import { DepthAid } from './depthAid';
 import { buildWorker, poseSignal } from './people';
 import { SiteLife3D } from './siteLife3d';
 import { Weather3D } from './weather3d';
+import { tandemPoint } from '../sim/tandem';
+import { localToWorld } from '../physics/load/rigidBody';
+import { placeCylinderBetween } from './kit';
 import { visibility } from '../sim/weather';
 import type { Worker } from './people';
 import { Signalman } from '../sim/signalman';
@@ -80,6 +83,8 @@ export class World3D {
   private erection: { state: CraneState; geom: CraneGeometry } | null = null;
   /** Geparkeerde hulpkraan met haak en kabel. */
   private parked: { model: CraneModel; hook: THREE.Group; rope: RopeMesh } | null = null;
+  /** Kraan van de collega bij een tandemhijs, met haak, kabel en stroppen naar zijn einde. */
+  private partnerVis: { model: CraneModel; hook: THREE.Group; rope: RopeMesh; slings: THREE.Mesh[] } | null = null;
   private world: WorldModel;
   private loads = new Map<string, { group: THREE.Group; inner: THREE.Group }>();
   private hook: THREE.Group;
@@ -225,6 +230,17 @@ export class World3D {
     this.markerRing.rotation.x = -Math.PI / 2;
     this.markerArrow.visible = this.markerRing.visible = false;
     this.scene.add(this.markerArrow, this.markerRing);
+    if (this.sim.partner) {
+      const ps = this.sim.partner.spec;
+      const model = new CraneModel(ps, LIVERIES.standard.make(ps.cfg.visual.bodyColor, ps.cfg.visual.accentColor), night);
+      const hw = hookWidth(ps.gb.hookMassKg);
+      const hook = buildHook(hw, hw * 1.4);
+      const rope = new RopeMesh(ps.gb.hookMassKg > 3000 ? 4 : 2, ropeRadius(ps.gb.maxCapacityT));
+      const slingMat = new THREE.MeshStandardMaterial({ color: 0xe0b020, roughness: 0.8 });
+      const slings = [0, 1].map(() => new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 8, 1, true), slingMat));
+      this.scene.add(model.root, hook, rope.mesh, ...slings);
+      this.partnerVis = { model, hook, rope, slings };
+    }
     this.weather = new Weather3D(m, this.scene, pal.indoor);
     this.scene.add(this.weather.root);
     this.visibility = visibility(m.weather, m.timeOfDay);
@@ -349,6 +365,7 @@ export class World3D {
     const pts: FramePoint[] = [{ x: m.crane.x - 12, y: 0 }, { x: m.crane.x + 12, y: 0 }];
     for (const o of m.obstacles) if (o.kind !== 'ceiling') pts.push({ x: o.x, y: o.y + o.h }, { x: o.x + o.w, y: 0 });
     for (const z of m.zones) pts.push({ x: z.x, y: z.y + 4 });
+    if (m.tandem) pts.push({ x: m.tandem.start.x - 6, y: 0 }, { x: m.tandem.start.x + 6, y: 14 });
     for (const l of m.loads) pts.push({ x: l.x, y: l.y + 3 });
     pts.push({ x: this.sim.geom.tip.x, y: this.sim.geom.tip.y + 3 });
     this.overviewPts = pts;
@@ -436,6 +453,33 @@ export class World3D {
     }
   }
 
+  /** Collega-kraan bijwerken: model, kabel, haak en twee stroppen naar zijn einde van de last. */
+  private updatePartner(dt: number): void {
+    const v = this.partnerVis;
+    const p = this.sim.partner;
+    if (!v || !p) return;
+    v.model.update(p.state, p.geom, this.time);
+    const tip = p.geom.tip;
+    const hp = p.hookPoint();
+    const hookH = hookWidth(p.spec.gb.hookMassKg) * 1.4;
+    v.hook.position.set(hp.x, hp.y - hookH * 0.5, hp.z);
+    v.rope.update(new THREE.Vector3(tip.x, tip.y, tip.z), new THREE.Vector3(hp.x, hp.y, hp.z), p.ropeLength, new THREE.Vector3(), dt);
+    const l = this.sim.attached;
+    const on = !!l && p.attached;
+    for (const s of v.slings) s.visible = on;
+    if (on && l) {
+      const b = l.cb.body;
+      const bx = tandemPoint(l.type, 'B').x;
+      const top = b.boxOffset.y + b.halfH;
+      const from = new THREE.Vector3(hp.x, hp.y - hookH, hp.z);
+      const d = Math.min(b.depth, 6) * 0.4;
+      v.slings.forEach((s, i) => {
+        const w = localToWorld(b, b.boxOffset.x + bx, top, false, i === 0 ? -d : d);
+        placeCylinderBetween(s, from, w, 0.03);
+      });
+    }
+  }
+
   /** Zichtbare schade aan een last: donkerder, doffer plaatwerk naarmate de schade oploopt. */
   private damageShown = new Map<string, number>();
   private showLoadDamage(id: string, inner: THREE.Object3D, damage: number): void {
@@ -484,6 +528,7 @@ export class World3D {
     const t = this.time / 1000;
     const cfg = sim.spec.cfg;
     this.crane.update(sim.crane, sim.geom, this.time);
+    this.updatePartner(dt);
     if (this.tower && this.erection && sim.assembly) this.tower.update(this.erection.state, this.erection.geom, this.time, sim.assembly.build);
     if (this.parked && sim.parked) {
       const pk = sim.parked;

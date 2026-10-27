@@ -9,6 +9,7 @@ import { allowedCapacityT } from '../../src/cranes/models/capacity';
 import type { MissionDef, TaskDef } from '../../src/missions/data/types';
 import { validateMission } from '../../src/missions/validation/validateMission';
 import { loadBottomCenter } from '../../src/missions/validation/placement';
+import { bodyTilt } from '../../src/physics/load/rigidBody';
 import type { DifficultyProfile } from '../../src/sim/difficulty';
 import type { LoadRuntime } from '../../src/sim/simulation';
 import { Simulation } from '../../src/sim/simulation';
@@ -317,6 +318,7 @@ export class Bot {
       } else if (task.type === 'deliver') {
         if (needOutriggers() && sim.support.mode !== 'outriggers') yield* this.deployOutriggers();
         if (task.effect?.type === 'towerPart') yield* this.mount3D(task);
+        else if (sim.mission.tandem?.loadId === task.loadId) yield* this.tandemLift(task);
         else yield* this.deliver(task);
       } else if (task.type === 'switchCrane') {
         this.phase = 'overstappen';
@@ -561,6 +563,79 @@ export class Bot {
   }
 
   private offF = 0;
+
+  /**
+   * Tandemhijs: rustig werken zodat de collega kan volgen. Aanslaan aan einde A, langzaam hijsen tot
+   * boven de obstakels, giekpunt in kleine stappen naar de plek van einde A boven de zone (wachten als
+   * de collega achterloopt), en heel langzaam neerzetten.
+   */
+  private *tandemLift(task: Extract<TaskDef, { type: 'deliver' }>): Generator<CraneInput> {
+    const sim = this.sim;
+    const load = sim.loads.find((l) => l.id === task.loadId)!;
+    const zone = sim.mission.zones.find((z) => z.id === task.zoneId)!;
+    const idx = sim.tasks.findIndex((t) => t.def === task);
+    const lt = load.type;
+    const partner = sim.partner!;
+    // 1. naar einde A en aanslaan
+    this.phase = 'tandem: aanslaan';
+    for (let k = 0; k < 60 * 120 && !sim.attached; k++) {
+      const i = emptyInput();
+      const sp = sim.slingPoint(load);
+      this.aim = this.angleTo(sp);
+      this.tipTo3D(sp.x, sp.z, Math.max(sim.geom.tipHeight, sp.y + this.gb.ropeMin + sim.hookH + 1), i, 0.4);
+      const near = Math.hypot(sim.geom.tip.x - sp.x, sim.geom.tip.z - sp.z) < 0.3;
+      this.hoistTo(near ? sp.y + 0.15 : Math.max(sim.hookPoint().y, sp.y + 1.5), i, 0.6);
+      if (near && sim.attachCandidate() === load) {
+        sim.toggleRigging();
+        break;
+      }
+      yield i;
+    }
+    if (!sim.attached) {
+      yield* this.giveUp('tandem: kon niet aanslaan');
+      return;
+    }
+    // 2. langzaam hijsen tot ruim boven de obstakels op de route
+    this.phase = 'tandem: hijsen';
+    let top = 0;
+    for (const c of sim.colliders) if (c.kind !== 'crane' && c.kind !== 'ceiling') top = Math.max(top, c.maxY);
+    const clearBottom = Math.max(top, zone.y) + 1.0;
+    for (let k = 0; k < 60 * 240; k++) {
+      const i = emptyInput();
+      const bc = loadBottomCenter(load.cb.body);
+      if (bc.y > clearBottom) break;
+      i.precision = true;
+      i.hoist = 0.5;
+      yield i;
+    }
+    // 3. in kleine stappen naar de plek van einde A boven de zone; wachten als de collega achterloopt
+    this.phase = 'tandem: verplaatsen';
+    const ax = zone.x - lt.width * 0.42;
+    const az = zone.z ?? 0;
+    const tipY = sim.geom.tipHeight;
+    for (let k = 0; k < 60 * 600; k++) {
+      const i = emptyInput();
+      const ph = partner.hookPoint();
+      const lag = Math.hypot(ph.x - partner.geom.tip.x, ph.z - partner.geom.tip.z);
+      const tilt = Math.abs(bodyTilt(load.cb.body).roll) * 57.3;
+      const done = Math.hypot(sim.geom.tip.x - ax, sim.geom.tip.z - az) < 0.15;
+      if (done && lag < 0.3 && sim.swayDeg < 1.5) break;
+      if (lag < 0.6 && tilt < 3) this.tipTo3D(ax, az, tipY, i, 0.12);
+      this.hoistTo(clearBottom + lt.height + lt.slingHeight + sim.hookH + 0.4, i, 0.3);
+      yield i;
+    }
+    // 4. heel langzaam neerzetten tot de levering is geaccepteerd
+    this.phase = 'tandem: neerzetten';
+    for (let k = 0; k < 60 * 400; k++) {
+      if (sim.tasks[idx].status === 'done' || sim.outcome !== 'running') return;
+      const i = emptyInput();
+      this.tipTo3D(ax, az, sim.geom.tipHeight, i, 0.08);
+      i.precision = true;
+      i.hoist = -0.6;
+      yield i;
+    }
+    if (sim.tasks[idx].status !== 'done') yield* this.giveUp(`tandem: niet geplaatst (${sim.placementHint?.reasons.join(', ')})`);
+  }
 
   // ------------------------------------------------------------------ montage in 3D (hulpkraan)
 

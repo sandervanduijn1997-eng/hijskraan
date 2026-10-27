@@ -50,6 +50,7 @@ import { DIFFICULTIES } from './difficulty';
 import type { Rig, RigChoice } from './rigging';
 import { SiteLife, WORKERS_BY_ENV } from './site';
 import { CRANE_WIND_LIMIT, rainGroundFactor, windLimitFor } from './weather';
+import { PartnerCrane, tandemPoint } from './tandem';
 import type { MarkerKind, Recording } from './recorder';
 import { Recorder, inputAt } from './recorder';
 import type { Danger } from './site';
@@ -234,6 +235,9 @@ export class Simulation {
   /** Windstop: toelaatbare windsnelheid voor de huidige last (m/s) en of hij nu overschreden wordt. */
   windLimit = 14;
   windStop = false;
+  /** Tandemhijs: de kraan van de collega (null = geen tandem). */
+  partner: PartnerCrane | null = null;
+  private partnerViolationLatched = false;
   private windStopTime = 0;
   private windViolationLatched = false;
   /** Opname voor de herhaling en het aantal gezette stappen. */
@@ -322,6 +326,7 @@ export class Simulation {
       this.loads.push({ id: sp.id, type, cb, status: 'resting', damage: 0 });
     }
 
+    if (opt.mission.tandem) this.partner = new PartnerCrane(opt.mission.tandem);
     this.site = this.buildSite(opt.mission.site?.workers);
     const sp = opt.mission.surprise;
     if (sp?.type === 'change') this.hiddenZones.add(sp.toZone);
@@ -535,7 +540,9 @@ export class Simulation {
   /** Hijspunt (bovenkant stroppen) van een last in wereldcoördinaten. */
   slingPoint(l: LoadRuntime): Vec3 {
     const b = l.cb.body;
-    return localToWorld(b, b.boxOffset.x, b.boxOffset.y + b.halfH + l.type.slingHeight);
+    // tandemlast: jij slaat einde A aan
+    const ax = this.isTandemLoad(l) ? tandemPoint(l.type, 'A').x : 0;
+    return localToWorld(b, b.boxOffset.x + ax, b.boxOffset.y + b.halfH + l.type.slingHeight);
   }
 
   /** Stel de lastmomentbegrenzer in (vanuit de cabine). */
@@ -588,7 +595,10 @@ export class Simulation {
     return best;
   }
 
-  private attachLoad(l: LoadRuntime, initial = false, rig: Rig = standardRig(l.type)): void {
+  private attachLoad(l: LoadRuntime, initial = false, rig0: Rig = standardRig(l.type)): void {
+    // tandem: jouw haak boven einde A, de collega slaat einde B aan
+    const tandem = this.isTandemLoad(l);
+    const rig: Rig = tandem ? { ...rig0, apexX: tandemPoint(l.type, 'A').x, points: rig0.points.map((p) => ({ x: tandemPoint(l.type, 'A').x + p.x * 0.15, z: p.z })) } : rig0;
     if (this.hookBody) {
       this.world.removeBody(this.hookBody);
       this.hookBody = null;
@@ -610,6 +620,12 @@ export class Simulation {
     this.rope.length = clamp(initial ? d : Math.max(d, this.spec.gb.ropeMin), this.spec.gb.ropeMin, this.spec.gb.ropeMax);
     this.crane.ropeLength = this.rope.length;
     if (!initial) this.events.push({ type: 'attach' });
+    if (tandem && this.partner && !this.partner.attached) {
+      const bx = tandemPoint(l.type, 'B').x;
+      const er = this.partner.attach(l.cb, { x: b.boxOffset.x + bx, y: b.apex.y, z: 0 }, apexWorld(b));
+      this.world.extraRopes.push(er);
+      this.events.push({ type: 'surprise', text: 'Collega: einde B aangeslagen, ik volg je. Rustig aan, dan blijft hij waterpas.' });
+    }
   }
 
   private detachLoad(placed: boolean): void {
@@ -620,6 +636,11 @@ export class Simulation {
     b.apex = { x: b.boxOffset.x, y: b.boxOffset.y + b.halfH + l.type.slingHeight };
     setBodyMass(b, l.type.massKg);
     this.rigPct = 0;
+    if (this.partner?.rope) {
+      const i = this.world.extraRopes.indexOf(this.partner.rope);
+      if (i >= 0) this.world.extraRopes.splice(i, 1);
+      this.partner.detach();
+    }
     l.cb.extraPoints = [];
     l.status = placed ? 'placed' : 'resting';
     this.attached = null;
@@ -743,8 +764,16 @@ export class Simulation {
     this.rope.length = this.crane.ropeLength;
     this.rope.tip = { ...this.geom.tip };
 
+    // collega-kraan (tandem): volgt jouw einde vóór de fysica
+    if (this.partner) {
+      const l = this.attached;
+      const mine = l && this.partner.attached ? apexWorld(l.cb.body) : null;
+      this.partner.update(dt, mine);
+    }
+
     // fysica
     this.world.step(dt, SUBSTEPS, this.rope, tipStart, lengthStart);
+    this.partner?.measure();
 
     // meten: kabelkracht, belasting, stabiliteit
     const k = 1 - Math.exp(-dt / 0.25);
@@ -966,7 +995,14 @@ export class Simulation {
 
   private loadLifted(): boolean {
     const l = this.attached;
-    return !!l && l.cb.supports.size === 0 && this.tensionF > l.type.massKg * GRAVITY * 0.7;
+    // bij een tandemhijs draagt de collega een deel van het gewicht
+    const share = this.partner?.attached ? (this.partner.rope?.tension ?? 0) : 0;
+    return !!l && l.cb.supports.size === 0 && this.tensionF + share > l.type.massKg * GRAVITY * 0.7;
+  }
+
+  /** Is dit de last van de tandemhijs? */
+  isTandemLoad(l: LoadRuntime): boolean {
+    return !!this.partner && this.mission.tandem?.loadId === l.id;
   }
 
   private measure(dt: number): void {
@@ -1038,7 +1074,8 @@ export class Simulation {
       for (const zn of this.mission.zones) if (zn.y < 1 && Math.hypot(x - zn.x, z - (zn.z ?? 0)) < zn.tolerance + 2 + pad) return true;
       return false;
     };
-    const free = (x: number, z: number): boolean => Math.hypot(x - cx, z - cz) > rMin && !blocked(x, z, 0.3);
+    const pg = this.partner?.geom;
+    const free = (x: number, z: number): boolean => Math.hypot(x - cx, z - cz) > rMin && (!pg || Math.hypot(x - pg.slewX, z - pg.slewZ) > rMin) && !blocked(x, z, 0.3);
     let laneZ: number | null = null;
     for (const off of [rMin + 8, -(rMin + 8), rMin + 14, -(rMin + 14), rMin + 20, -(rMin + 20)]) {
       let ok = true;
@@ -1275,6 +1312,18 @@ export class Simulation {
       else if (worst > 0.85) W.raise('groundPressure', 'caution', `Bodemdruk stempel ${wi + 1} hoog: ${Math.round(worst * 100)} % van toegestaan`);
     }
     if (this.site?.peopleUnderLoad) W.raise('overPeople', 'critical', 'Last boven personen — stop!');
+    if (this.partner?.attached) {
+      const p = this.partner;
+      if (p.loadPct > 100) W.raise('partnerOverload', 'critical', `Collega-kraan overbelast: ${Math.round(p.loadPct)} % — de last verschuift naar zijn kant`);
+      else if (p.loadPct > 90) W.raise('partnerOverload', 'caution', `Collega-kraan zwaar belast: ${Math.round(p.loadPct)} %`);
+      const roll = this.attached ? Math.abs(bodyTilt(this.attached.cb.body).roll) * RAD : 0;
+      if (roll > 4 && lifted) W.raise('tandemTilt', 'caution', `Last hangt ${Math.round(roll)}° scheef — werk gelijk met je collega (langzamer)`);
+      if (p.loadPct > 110 && lifted && !this.partnerViolationLatched) {
+        this.partnerViolationLatched = true;
+        this.metrics.safetyViolations++;
+        if (this.difficulty.overloadFail) this.fail('De collega-kraan werd overbelast — de tandemhijs moest worden afgebroken.');
+      }
+    }
     if (this.windStop) W.raise('windStop', this.attached ? 'critical' : 'caution', `Windstop: ${this.wind.speed.toFixed(1)} m/s boven de limiet van ${this.windLimit} m/s${this.attached ? ' voor deze last — zet hem neer of wacht' : ''}`);
     if (this.stopped) W.raise('inspection', 'critical', `Werk stilgelegd — inspecteur onderweg (nog ${Math.ceil(this.inspection!.until - this.time)} s)`);
     if (this.time < this.zoneReadyAt) W.raise('zoneHold', 'info', `Afzetplek nog niet vrij — wachten (nog ${Math.ceil(this.zoneReadyAt - this.time)} s)`);

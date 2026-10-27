@@ -231,7 +231,8 @@ export function validateMission(m: MissionDef): MissionValidation {
     const ownDeck = m.craneOptions.some((cid) => Math.abs(CRANES[cid].visual.carrierHeight - zn.y) < 0.05);
     if (!surfaceAt(zn.x, zn.y, lt ? lt.width / 2 : 0.1) && !stacked && !ownDeck) err(`Zone ${zn.id} ligt niet op een oppervlak`);
     if (lt) {
-      const hit = overlaps(zn.x - lt.width / 2 + zn.tolerance * 0, zn.x + lt.width / 2, zn.y + 0.01, zn.y + lt.height, -lt.depth / 2, lt.depth / 2, colliders);
+      const zz = zn.z ?? 0;
+      const hit = overlaps(zn.x - lt.width / 2, zn.x + lt.width / 2, zn.y + 0.01, zn.y + lt.height, zz - lt.depth / 2, zz + lt.depth / 2, colliders);
       if (hit) err(`Last past niet in zone ${zn.id}: overlapt met ${hit.id}`);
     }
   }
@@ -250,11 +251,14 @@ export function validateMission(m: MissionDef): MissionValidation {
       const lt = LOADS[ls.type];
       const zn = m.zones.find((z) => z.id === t.zoneId)!;
       const above = lt.height + lt.slingHeight + hd.h + spec.gb.ropeMin + 0.3;
-      const massT = (lt.massKg + spec.gb.hookMassKg) / 1000;
+      // tandem: jouw kraan draagt de helft, aan einde A
+      const tandem = m.tandem?.loadId === ls.id;
+      const massT = ((tandem ? lt.massKg / 2 : lt.massKg) + spec.gb.hookMassKg) / 1000;
+      const endA = tandem ? -lt.width * 0.42 : 0;
       // rondom geplaatste punten: op hun straal vanaf de draaias (lijn-x)
       const sx0 = m.crane.x + spec.gb.slewOffsetX;
-      const lx = lineX(sx0, ls.x, ls.z ?? 0);
-      const zx = lineX(sx0, zn.x, zn.z ?? 0);
+      const lx = lineX(sx0, ls.x + endA, ls.z ?? 0);
+      const zx = lineX(sx0, zn.x + endA, zn.z ?? 0);
       lifts.push({ x: lx, heightNeeded: ls.y + above, massT, label: `${ls.id} oppakken`, extraCwT: extraCw });
       lifts.push({ x: zx, heightNeeded: zn.y + above, massT, label: `${ls.id} neerzetten`, extraCwT: extraCw, transit: { from: lx, to: zx, stack: above } });
       if (t.effect?.type === 'addCounterweight') extraCw += t.effect.massT;

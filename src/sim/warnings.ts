@@ -10,6 +10,8 @@ export type WarningId =
   | 'zoneHold'
   | 'inspection'
   | 'windStop'
+  | 'partnerOverload'
+  | 'tandemTilt'
   | 'slingAngle'
   | 'rigTilt'
   | 'overload'
@@ -45,6 +47,8 @@ const PRIORITY: Record<WarningId, number> = {
   zoneHold: 35,
   inspection: 99,
   windStop: 86,
+  partnerOverload: 91,
+  tandemTilt: 48,
   slingAngle: 62,
   rigTilt: 42,
   lmiSetup: 30,

@@ -88,7 +88,7 @@ export function withStory(m0: MissionDef): MissionDef {
   const m = withWeather(m0);
   const client = clientFor(m);
   const out: MissionDef = { ...m, client, deadline: deadlineFor(m) };
-  if (m.chapter < 2 || m.lesson || m.assembly || m.surprise === null) return out;
+  if (m.chapter < 2 || m.lesson || m.assembly || m.tandem || m.surprise === null) return out;
   const c = client.contact;
   const firstDeliver = m.tasks.find((t) => t.type === 'deliver');
   const kind = m.number % 3;

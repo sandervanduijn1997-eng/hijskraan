@@ -1,3 +1,4 @@
+import type { TandemDef } from '../../sim/tandem';
 import type { ClientDef, SurpriseDef } from './story';
 import type { MatId } from '../../physics/stability/groundPressure';
 import type { LessonId } from '../../sim/lesson';
@@ -171,6 +172,8 @@ export interface MissionDef {
   zones: ZoneDef[];
   /** Geregisseerde les met een instructeur (alleen in de carrière). */
   lesson?: LessonId;
+  /** Tandemhijs met een collega-kraan. */
+  tandem?: TandemDef;
   /** Opdrachtgever, zachte deadline (s, te laat = boete) en een verrassing onderweg (null = nooit). */
   client?: ClientDef;
   deadline?: number;

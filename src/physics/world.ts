@@ -7,7 +7,7 @@ import type { Quad } from './collision/geometry';
 import type { RopeState } from './cable/rope';
 import { solveRope } from './cable/rope';
 import type { RigidBody } from './load/rigidBody';
-import { apexWorld, applyAngularCorrection, bodyYaw, qAddRotation, qMul, updateDerived } from './load/rigidBody';
+import { apexWorld, applyAngularCorrection, applyPositionalCorrection, bodyYaw, localToWorld, qAddRotation, qMul, updateDerived } from './load/rigidBody';
 import type { Vec3 } from '../utils/math';
 
 export interface PhysicsParams {
@@ -51,6 +51,20 @@ export const defaultPhysicsParams = (): PhysicsParams => ({
  * Deterministische XPBD-wereld: lichamen, één hijskabel, statische obstakels en de grond.
  * Wordt alleen met vaste tijdstappen aangeroepen.
  */
+/** Tweede kabel aan een lichaam (tandemhijs). `tipStart`/`lengthStart` = begin van de stap. */
+export interface ExtraRope {
+  body: ContactBody;
+  /** Aanslagpunt in het lichaamsframe. */
+  local: { x: number; y: number; z: number };
+  tip: Vec3;
+  tipStart: Vec3;
+  length: number;
+  lengthStart: number;
+  /** Gemeten kabelkracht (N). */
+  tension: number;
+  lambda: number;
+}
+
 export class PhysicsWorld {
   readonly bodies: ContactBody[] = [];
   colliders: Collider[] = [];
@@ -67,6 +81,11 @@ export class PhysicsWorld {
    */
   ropeTwist = 0;
   private ropeTwistBody: ContactBody | null = null;
+  /**
+   * Extra kabels (tandemhijs): een tweede kraan houdt dezelfde last vast op een eigen aanslagpunt.
+   * Zelfde ongelijkheidsconstraint als de hoofdkabel, aan een punt in het lichaamsframe.
+   */
+  readonly extraRopes: ExtraRope[] = [];
 
   constructor(params: PhysicsParams = defaultPhysicsParams()) {
     this.params = params;
@@ -175,6 +194,19 @@ export class PhysicsWorld {
         }
       }
 
+      for (const er of this.extraRopes) {
+        const b = er.body.body;
+        b.sleeping = false;
+        const et = { x: er.tipStart.x + (er.tip.x - er.tipStart.x) * f, y: er.tipStart.y + (er.tip.y - er.tipStart.y) * f, z: er.tipStart.z + (er.tip.z - er.tipStart.z) * f };
+        const L = er.lengthStart + (er.length - er.lengthStart) * f;
+        const a = localToWorld(b, er.local.x, er.local.y, false, er.local.z);
+        const dx = a.x - et.x;
+        const dy = a.y - et.y;
+        const dz = a.z - et.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > L && d > 1e-6) er.lambda += applyPositionalCorrection(b, a, null, null, { x: -dx / d, y: -dy / d, z: -dz / d }, d - L, p.ropeCompliance, h);
+      }
+
       const contacts: SolvedContact[] = solveContacts(this.bodies, this.colliders, this.quads, p.friction, this.impacts);
 
       for (const cb of this.bodies) {
@@ -255,6 +287,10 @@ export class PhysicsWorld {
     } else if (rb) this.ropeTwist += (rope.length - lengthStart) * 0.004;
     // spanning = λ / h² gemiddeld over de substappen
     rope.tension = rb ? lambdaSum / (h * h) / substeps : 0;
+    for (const er of this.extraRopes) {
+      er.tension = er.lambda / (h * h) / substeps;
+      er.lambda = 0;
+    }
     if (rb) {
       const a = apexWorld(rb.body);
       const dx = a.x - tipEnd.x;
