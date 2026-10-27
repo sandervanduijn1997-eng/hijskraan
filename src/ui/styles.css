@@ -241,3 +241,4 @@ select, input[type='number'] { background: #23272d; color: var(--text); border: 
 .replay-track { position: relative; cursor: pointer; margin: 0 auto; }
 .replay-track canvas { display: block; width: 100%; height: 100%; border-radius: 4px; }
 .replay-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 6px #fff; pointer-events: none; }
+.hud .bad { color: #ff6b5b; }

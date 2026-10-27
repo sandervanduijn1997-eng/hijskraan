@@ -49,6 +49,7 @@ import type { DifficultyProfile } from './difficulty';
 import { DIFFICULTIES } from './difficulty';
 import type { Rig, RigChoice } from './rigging';
 import { SiteLife, WORKERS_BY_ENV } from './site';
+import { CRANE_WIND_LIMIT, rainGroundFactor, windLimitFor } from './weather';
 import type { MarkerKind, Recording } from './recorder';
 import { Recorder, inputAt } from './recorder';
 import type { Danger } from './site';
@@ -230,6 +231,11 @@ export class Simulation {
   private liftedSince = -1;
   /** Stillegging en inspectie na een zwaar incident (één per opdracht; latere incidenten tellen mee). */
   inspection: Inspection | null = null;
+  /** Windstop: toelaatbare windsnelheid voor de huidige last (m/s) en of hij nu overschreden wordt. */
+  windLimit = 14;
+  windStop = false;
+  private windStopTime = 0;
+  private windViolationLatched = false;
   /** Opname voor de herhaling en het aantal gezette stappen. */
   readonly recorder = new Recorder();
   stepCount = 0;
@@ -763,6 +769,7 @@ export class Simulation {
     this.updateInspection();
     this.updateSite(dt);
     this.updateSurprise();
+    this.updateWindStop(dt);
     this.measure(dt);
     this.evaluateWarnings(ctl);
     for (const w of this.warnings.end(dt)) this.events.push({ type: 'warning', warning: w });
@@ -865,7 +872,7 @@ export class Simulation {
     this.padPressure = loads.map((f) => f / area);
     this.padAllowed = loads.map((_, i) => {
       const g = groundAt(this.mission.ground ?? [], outriggerPad(this.spec, this.crane, i).x, this.mission.groundFallback);
-      return allowedPressure(g.type, Math.min(1, g.quality + this.spec.effects.groundBonus));
+      return allowedPressure(g.type, Math.min(1, g.quality * rainGroundFactor(this.mission.weather, g.type) + this.spec.effects.groundBonus));
     });
     for (let i = 0; i < 4; i++) {
       const ratio = this.padPressure[i] / this.padAllowed[i];
@@ -1101,6 +1108,27 @@ export class Simulation {
   }
 
   /**
+   * Windstop. Boven de toelaatbare windsnelheid (afhankelijk van de windvang van de last) mag er niet
+   * gehesen worden: wie langer dan 3 s een vrij hangende last vasthoudt of verplaatst, maakt een overtreding.
+   */
+  private updateWindStop(dt: number): void {
+    const kind = this.spec.cfg.kind;
+    this.windLimit = this.attached ? windLimitFor(this.attached.type, kind) : CRANE_WIND_LIMIT(kind);
+    this.windStop = this.wind.speed > this.windLimit;
+    const lifted = this.loadLifted();
+    if (this.windStop && lifted) {
+      this.windStopTime += dt;
+      if (this.windStopTime > 3 && !this.windViolationLatched) {
+        this.windViolationLatched = true;
+        this.metrics.safetyViolations++;
+      }
+    } else {
+      this.windStopTime = 0;
+      if (!lifted) this.windViolationLatched = false;
+    }
+  }
+
+  /**
    * Verrassing onderweg. Windvlaag: 8 s nadat de last vrij hangt. Afzetplek niet vrij: als de last
    * binnen 8 m van de zone komt. Wijziging: bij het aanslaan krijgt de taak een nieuwe afzetplek.
    */
@@ -1224,7 +1252,7 @@ export class Simulation {
     }
     const swayLimit = req.maxSwayDeg ?? 6;
     if (lifted && this.swayDeg > swayLimit) W.raise('sway', this.swayDeg > swayLimit * 1.6 ? 'critical' : 'caution', `Te veel slingering: ${this.swayDeg.toFixed(1)}°`);
-    if (this.wind.speed > 12) W.raise('wind', this.wind.speed > 16 ? 'critical' : 'caution', `Harde wind: ${this.wind.speed.toFixed(1)} m/s — beperk het lastoppervlak`);
+    if (!this.windStop && this.wind.speed > 12) W.raise('wind', this.wind.speed > 16 ? 'critical' : 'caution', `Harde wind: ${this.wind.speed.toFixed(1)} m/s — beperk het lastoppervlak`);
     const minGF = req.minGroundFactor ?? 0.6;
     if ((this.attached || this.support.mode !== 'tires') && this.groundFactor < minGF) {
       W.raise('ground', 'caution', `Ondergrond te zwak (factor ${this.groundFactor.toFixed(2)}) — kies een stevigere plek`);
@@ -1247,6 +1275,7 @@ export class Simulation {
       else if (worst > 0.85) W.raise('groundPressure', 'caution', `Bodemdruk stempel ${wi + 1} hoog: ${Math.round(worst * 100)} % van toegestaan`);
     }
     if (this.site?.peopleUnderLoad) W.raise('overPeople', 'critical', 'Last boven personen — stop!');
+    if (this.windStop) W.raise('windStop', this.attached ? 'critical' : 'caution', `Windstop: ${this.wind.speed.toFixed(1)} m/s boven de limiet van ${this.windLimit} m/s${this.attached ? ' voor deze last — zet hem neer of wacht' : ''}`);
     if (this.stopped) W.raise('inspection', 'critical', `Werk stilgelegd — inspecteur onderweg (nog ${Math.ceil(this.inspection!.until - this.time)} s)`);
     if (this.time < this.zoneReadyAt) W.raise('zoneHold', 'info', `Afzetplek nog niet vrij — wachten (nog ${Math.ceil(this.zoneReadyAt - this.time)} s)`);
     if (this.attached && this.rig?.choice) {

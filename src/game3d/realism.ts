@@ -210,10 +210,12 @@ export const SKY_FOR: Record<TimeOfDay, SkySetup> = {
   day: { file: 'day', background: 1, environment: 1, sun: 3.2, sunColor: 0xfff4e0, exposure: 0.8 },
   dusk: { file: 'dusk', background: 1, environment: 0.9, sun: 1.8, sunColor: 0xffb27a, exposure: 1.0 },
   overcast: { file: 'overcast', background: 1, environment: 1.1, sun: 0.5, sunColor: 0xe8eef5, exposure: 0.95 },
-  night: { file: 'night', background: 1.4, environment: 1.6, sun: 0.15, sunColor: 0x9fb4ff, exposure: 1.5 },
+  night: { file: 'night', background: 0.8, environment: 0.35, sun: 0.08, sunColor: 0x9fb4ff, exposure: 0.9 },
 };
 
 export function skyFor(t: TimeOfDay, weather: Weather): SkySetup {
+  // nacht blijft nacht, ook met regen of mist (alleen doffer)
+  if (t === 'night') return weather === 'fog' || weather === 'rain' ? { ...SKY_FOR.night, environment: 0.3, background: 0.6 } : SKY_FOR.night;
   if (weather === 'fog' || weather === 'rain') return { ...SKY_FOR.overcast, environment: 1, background: 0.9 };
   return SKY_FOR[t];
 }

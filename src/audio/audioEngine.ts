@@ -304,6 +304,35 @@ export class AudioEngine {
     this.shot('chainHeavy', 0.8, 0.9, at);
   }
 
+  /** Regen: ruis door een hoogdoorlaat- en een banddoorlaatfilter (gekletter op staal en plassen). */
+  private rainNode: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  setRain(on: boolean, strength = 1): void {
+    if (!this.ctx || !this.noiseBuf) return;
+    const t = this.ctx.currentTime;
+    if (on && !this.rainNode) {
+      const src = this.loopNoise();
+      const hp = this.ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 1400;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'peaking';
+      bp.frequency.value = 4200;
+      bp.gain.value = 6;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(hp).connect(bp).connect(gain).connect(this.sfxBus);
+      this.rainNode = { src, gain };
+    }
+    if (this.rainNode) {
+      this.rainNode.gain.gain.setTargetAtTime(on ? 0.09 * strength : 0, t, 0.8);
+      if (!on) {
+        const n = this.rainNode;
+        this.rainNode = null;
+        n.src.stop(t + 3);
+      }
+    }
+  }
+
   radio(): void {
     if (this.shot('radioCrackle', 0.25, 1.05)) this.duck(0.4, 1.2);
   }

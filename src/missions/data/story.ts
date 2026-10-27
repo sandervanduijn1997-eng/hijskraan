@@ -69,8 +69,23 @@ function alternateZone(m: MissionDef, zn: ZoneDef): ZoneDef | null {
   return null;
 }
 
-/** Opdrachtgever, deadline en (vanaf hoofdstuk 2) één verrassing per missie. */
-export function withStory(m: MissionDef): MissionDef {
+/**
+ * Wisselend weer: buiten, vanaf hoofdstuk 2, krijgen missies met helder of bewolkt weer soms regen,
+ * mist of een nachtdienst. Elk weertype vraagt een andere aanpak (zie sim/weather).
+ */
+function withWeather(m: MissionDef): MissionDef {
+  if (m.chapter < 2 || m.lesson || INDOOR.includes(m.environment) || (m.weather !== 'clear' && m.weather !== 'cloudy')) return m;
+  if (m.number % 6 === 3) return { ...m, weather: 'rain' };
+  if (m.number % 7 === 5) return { ...m, weather: 'fog', timeOfDay: m.timeOfDay === 'night' ? 'night' : 'overcast' };
+  if (m.number % 9 === 4) return { ...m, timeOfDay: 'night' };
+  return m;
+}
+
+const INDOOR: EnvironmentId[] = ['factory'];
+
+/** Opdrachtgever, deadline, weer en (vanaf hoofdstuk 2) één verrassing per missie. */
+export function withStory(m0: MissionDef): MissionDef {
+  const m = withWeather(m0);
   const client = clientFor(m);
   const out: MissionDef = { ...m, client, deadline: deadlineFor(m) };
   if (m.chapter < 2 || m.lesson || m.assembly || m.surprise === null) return out;

@@ -8,6 +8,7 @@ import type { LmiSetup } from '../cranes/models/lmi';
 import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
 import type { GearKind, PointMode, RigChoice } from '../sim/rigging';
 import { LessonRunner } from '../sim/lesson';
+import { WEATHER_LABEL, windLimitFor } from '../sim/weather';
 import { makeDebrief } from '../sim/debrief';
 import type { Recording } from '../sim/recorder';
 import { FIXED_DT } from '../physics/constants';
@@ -672,7 +673,8 @@ export class App {
             m.client ? h('dt', null, 'Opdrachtgever') : null, m.client ? h('dd', null, m.client.name) : null,
             h('dt', null, 'Locatie'), h('dd', null, `${ENVIRONMENTS[m.environment].label}`),
             m.deadline ? h('dt', null, 'Deadline') : null, m.deadline ? h('dd', null, `${Math.round(m.deadline / 60)} min — te laat kost een boete`) : null,
-            h('dt', null, 'Wind'), h('dd', null, `${m.wind.base} m/s${m.wind.variable ? ' (wisselend)' : ''}`),
+            h('dt', null, 'Weer'), h('dd', null, `${WEATHER_LABEL[m.weather]}${m.timeOfDay === 'night' ? ', nachtdienst' : ''}${m.weather === 'fog' ? ' — beperkt zicht, luister naar de signaalgever' : m.weather === 'rain' ? ' — zachtere grond, minder zicht' : ''}`),
+            h('dt', null, 'Wind'), h('dd', null, `${m.wind.base} m/s${m.wind.variable ? ' (wisselend)' : ''} · windstop bij ${Math.min(...m.loads.map((l) => windLimitFor(getLoad(l.type), CRANES[m.craneOptions[0]].kind)))} m/s`),
             h('dt', null, 'Tijdslimiet'), h('dd', null, m.timeLimit ? `${Math.round(m.timeLimit / 60)} min` : 'geen'),
             h('dt', null, 'Max. schade'), h('dd', null, `${m.maxDamage} %`),
             h('dt', null, 'Moeilijkheid'), h('dd', null, '◆'.repeat(m.difficulty)),
@@ -1475,6 +1477,7 @@ export class App {
   debugApi(): Record<string, unknown> {
     return {
       sim: () => this.scene?.sim ?? null,
+      scene3d: () => this.scene ?? null,
       save: () => this.save,
       state: () => {
         const s = this.scene?.sim;

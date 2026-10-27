@@ -24,6 +24,8 @@ import { RopeMesh, ropeRadius } from './ropeMesh';
 import { DepthAid } from './depthAid';
 import { buildWorker, poseSignal } from './people';
 import { SiteLife3D } from './siteLife3d';
+import { Weather3D } from './weather3d';
+import { visibility } from '../sim/weather';
 import type { Worker } from './people';
 import { Signalman } from '../sim/signalman';
 import type { SignalCall } from '../sim/signalman';
@@ -87,6 +89,9 @@ export class World3D {
   /** Hijsbalk (alleen bij een aanslag met balk). */
   private spreader: THREE.Mesh;
   private siteLife: SiteLife3D | null = null;
+  private weather: Weather3D;
+  /** Zicht (m): labels verder weg dan dit zijn bij mist, regen of nacht niet te lezen. */
+  private visibility = Infinity;
   private zones: ZoneMarker[] = [];
   private labels: HTMLElement[] = [];
   private fx = new Effects3D();
@@ -220,6 +225,10 @@ export class World3D {
     this.markerRing.rotation.x = -Math.PI / 2;
     this.markerArrow.visible = this.markerRing.visible = false;
     this.scene.add(this.markerArrow, this.markerRing);
+    this.weather = new Weather3D(m, this.scene, pal.indoor);
+    this.scene.add(this.weather.root);
+    this.visibility = visibility(m.weather, m.timeOfDay);
+    audio.setRain(m.weather === 'rain' && !pal.indoor && cfg.mode !== 'demo');
     this.depthAid = new DepthAid(labelRoot);
     this.scene.add(this.depthAid.root);
     this.signalFigure = buildWorker(0xffd21f, 0xffffff);
@@ -329,6 +338,7 @@ export class World3D {
 
   dispose(): void {
     this.disposed = true;
+    audio.setRain(false);
     this.depthAid.dispose();
     this.rig.dispose();
     for (const l of this.labels) l.remove();
@@ -601,7 +611,8 @@ export class World3D {
       const lt = task && task.def.type === 'deliver' ? sim.loads.find((l) => l.id === (task.def as { loadId: string }).loadId)?.type : undefined;
       const v = new THREE.Vector3(z.x, z.y + (lt?.height ?? 1) + 1.2, z.z ?? 0).project(cam);
       const el = this.labels[i];
-      const visible = !hidden && v.z < 1 && this.cfg.mode !== 'demo' && (!stepOnly || active);
+      const far = this.rig.camera.position.distanceTo(new THREE.Vector3(z.x, z.y, z.z ?? 0)) > this.visibility;
+      const visible = !hidden && !far && v.z < 1 && this.cfg.mode !== 'demo' && (!stepOnly || active);
       el.style.display = visible ? '' : 'none';
       if (visible) {
         el.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -100%)`;
@@ -640,6 +651,7 @@ export class World3D {
     this.depthAid.update(sim, this.rig.camera, this.cfg.mode !== 'demo' && this.hooks.settings().depthAid !== false);
     this.updateSignalman(sim, t);
     this.siteLife?.update(this.paused ? 0 : dt);
+    this.weather.update(sim, this.rig.camera, this.paused ? 0 : dt, this.rig.focusTarget);
     const mk = this.lessonMarker;
     this.markerArrow.visible = mk?.kind === 'arrow';
     this.markerRing.visible = mk?.kind === 'ring';

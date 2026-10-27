@@ -210,7 +210,8 @@ export class Hud {
     setText(this.el.money, formatMoney(ctx.money));
     const lv = levelFor(ctx.xp);
     setText(this.el.xp, `${ctx.xp} · Nv ${lv.level}`);
-    setText(this.el.wind, `${fmt(sim.wind.speed)} m/s`);
+    setText(this.el.wind, `${fmt(sim.wind.speed)} m/s · max ${fmt(sim.windLimit)}`);
+    setClass(this.el.wind, sim.windStop ? 'bad' : '');
     this.el.windArrow.style.transform = `rotate(${sim.wind.x >= 0 ? 0 : 180}deg)`;
 
     setText(this.el.load, `${fmt(sim.measuredLoadT(), 2)} t`);
