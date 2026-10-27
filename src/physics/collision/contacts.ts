@@ -36,6 +36,7 @@ export interface ImpactEvent {
   speed: number;
   x: number;
   y: number;
+  z: number;
   /** Is de botsing grotendeels een neerzetting (normaal omhoog)? */
   landing: boolean;
 }
@@ -159,7 +160,7 @@ function recordContact(cb: ContactBody, otherId: string, p: Vec3, n: Vec3, impac
       v.z -= vo.z;
     }
     const vn = v.x * n.x + v.y * n.y + v.z * n.z;
-    if (vn < -0.02) impacts.push({ bodyId: cb.id, otherId, speed: -vn, x: p.x, y: p.y, landing: n.y > SUPPORT_NY });
+    if (vn < -0.02) impacts.push({ bodyId: cb.id, otherId, speed: -vn, x: p.x, y: p.y, z: p.z, landing: n.y > SUPPORT_NY });
   }
   cb.touching.add(otherId);
   if (n.y > SUPPORT_NY) cb.supports.add(otherId);

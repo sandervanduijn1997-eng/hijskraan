@@ -387,10 +387,54 @@ export class World3D {
         if (e.speed > 0.15) this.fx.dust(e.x, e.y, 0.5, Math.round(3 + e.speed * 6 + heavy * 8));
         if (e.obstacle && e.speed > 0.3) this.fx.debris(e.x, e.y, 0.5, 6);
         if (e.speed > 0.2) this.rig.shake(Math.min(0.6, e.speed * 0.15 + heavy * 0.3));
+        if (e.obstacle && e.speed > 0.2) this.addScuff(e.x, e.y, e.z, e.speed);
       } else if (e.type === 'boomHit') {
         this.fx.sparks(e.x, e.y, 0, 14);
         this.rig.shake(0.4);
       }
+    }
+  }
+
+  /** Zichtbare schade aan een last: donkerder, doffer plaatwerk naarmate de schade oploopt. */
+  private damageShown = new Map<string, number>();
+  private showLoadDamage(id: string, inner: THREE.Object3D, damage: number): void {
+    const level = Math.min(1, damage / 40);
+    const prev = this.damageShown.get(id) ?? 0;
+    if (level - prev < 0.05) return;
+    this.damageShown.set(id, level);
+    inner.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const out = mats.map((mm) => {
+        const m0 = mm as THREE.MeshStandardMaterial;
+        if (!m0.isMeshStandardMaterial) return mm;
+        // eigen kopie per last, met de oorspronkelijke kleur onthouden
+        const m = m0.userData.damageBase ? m0 : m0.clone();
+        if (!m.userData.damageBase) m.userData.damageBase = { color: m.color.clone(), rough: m.roughness };
+        const base = m.userData.damageBase as { color: THREE.Color; rough: number };
+        m.color.copy(base.color).lerp(new THREE.Color(0x3a3530), level * 0.45);
+        m.roughness = Math.min(1, base.rough + level * 0.3);
+        return m;
+      });
+      mesh.material = Array.isArray(mesh.material) ? out : out[0];
+    });
+  }
+
+  /** Schrammen en deuken op obstakels waar een last ertegenaan kwam (maximaal 40). */
+  private scuffs: THREE.Mesh[] = [];
+  private addScuff(x: number, y: number, z: number, speed: number): void {
+    const s = Math.min(0.8, 0.2 + speed * 0.25);
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x2a2724, roughness: 1 }));
+    m.scale.set(s, s * 0.35, s * 0.6);
+    m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    m.position.set(x, y, z);
+    this.scene.add(m);
+    this.scuffs.push(m);
+    if (this.scuffs.length > 40) {
+      const old = this.scuffs.shift()!;
+      this.scene.remove(old);
+      old.geometry.dispose();
     }
   }
 
@@ -443,6 +487,7 @@ export class World3D {
       const p = lerpBody(l.id, l.cb.body);
       v.group.position.copy(p.pos);
       v.group.quaternion.copy(p.q);
+      this.showLoadDamage(l.id, v.inner, l.damage);
     }
 
     // haak, kabel en stroppen

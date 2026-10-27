@@ -8,6 +8,12 @@ import type { LmiSetup } from '../cranes/models/lmi';
 import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
 import type { GearKind, PointMode, RigChoice } from '../sim/rigging';
 import { LessonRunner } from '../sim/lesson';
+import type { JobPlan, Quote, Settlement } from '../economy/business';
+import { DEDUCTIBLE, JOBS_PER_WEEK, QUOTES, applySettlement, insurancePremium, matsCost, quoteAccepted, reputationFactor, settleJob, winChance } from '../economy/business';
+import type { ResolvedCrane } from '../cranes/models/craneSpec';
+import type { MatId } from '../physics/stability/groundPressure';
+import { MATS, matLabel } from '../physics/stability/groundPressure';
+import { GROUND_LABEL, groundAt } from '../physics/ground';
 import { ASSEMBLY_XP_BONUS, withOptionalAssembly } from '../missions/data/towerAssembly';
 import { Telemetry, summarize } from '../telemetry/telemetry';
 import { MAX_SLING_ANGLE, SLING_LENGTHS, buildRig, gearFor, legLoadT, rigProblems, suggestRig } from '../sim/rigging';
@@ -55,6 +61,13 @@ interface PlanChoice {
   difficulty: DifficultyId;
   /** Torenkraan zelf opbouwen (alleen bij missies waar dat optioneel is). */
   assemble?: boolean;
+  /** Verschuiving van de standplaats langs x (m) en de kraanmatten. */
+  stand?: number;
+  mats?: MatId;
+  /** Offerte en verzekering; `rejected` = de vorige offerte werd niet gegund. */
+  quote?: Quote;
+  insured?: boolean;
+  rejected?: boolean;
 }
 
 const TOWER_PART_DONE: Record<TowerPartKind, string> = {
@@ -183,8 +196,20 @@ export class App {
   }
 
   startMission(m0: MissionDef, p: PlanChoice): void {
+    // offerte: de opdrachtgever kan de opdracht aan een concurrent gunnen
+    const quote = p.quote ?? 'normal';
+    const accepted = quoteAccepted(this.save, m0, quote);
+    this.save.business.quotes++;
+    this.persist();
+    if (!accepted) {
+      audio.ui('error');
+      this.showPlanning(m0, { ...p, rejected: true });
+      return;
+    }
+    p.rejected = false;
     this.plan = p;
-    const m = m0.assemblyOptional && p.assemble ? withOptionalAssembly(m0) : m0;
+    const m1 = m0.assemblyOptional && p.assemble ? withOptionalAssembly(m0) : m0;
+    const m = { ...m1, crane: { ...m1.crane, x: m1.crane.x + (p.stand ?? 0) }, mats: p.mats ?? m1.mats };
     const ups = this.save.upgrades[p.craneId] ?? [];
     this.startPlay({
       mode: 'career',
@@ -273,6 +298,14 @@ export class App {
           break;
         case 'slingBreak':
           audio.slingBreak(sim.hookPoint());
+          break;
+        case 'inspection':
+          if (e.phase === 'start') {
+            const t = sim.stopped ? 'Alles stil! Niemand beweegt. De inspecteur komt kijken.' : 'Incident gemeld — de inspecteur maakt een rapport.';
+            audio.radio();
+            this.hud?.radio(t);
+            if (this.save.settings.signalman === 'voice') speak(t);
+          } else this.showInspectionReport(sim);
           break;
         case 'surprise':
           // opdrachtgever of signaalgever via de portofoon
@@ -661,6 +694,8 @@ export class App {
           plan.chooseCounterweight && spec.counterweights.length > 1 ? choiceRow('Contragewicht', spec.counterweights.map((c, i) => ({ label: c.label, sel: p.cw === i, on: () => { p.cw = i; } }))) : h('div', { class: 'muted', style: 'font-size:.85em;margin-bottom:.5em' }, `Contragewicht: ${spec.counterweights[p.cw]?.label ?? '—'} (vast voor deze opdracht)`),
           plan.chooseBoom && spec.boomOptions.length > 1 ? choiceRow('Hoofdgiek (vakwerk)', spec.boomOptions.map((L, i) => ({ label: `${L} m`, sel: p.boom === i, on: () => { p.boom = i; } }))) : null,
           (plan.chooseBoom || plan.chooseJib) && spec.jibOptions.length > 1 ? choiceRow('Hulpgiek', spec.jibOptions.map((L, i) => ({ label: L === 0 ? 'geen' : `${L} m`, sel: p.jib === i, on: () => { p.jib = i; } }))) : null,
+          ...this.siteChoices(m, p, spec),
+          ...this.businessChoices(m, p),
           m.assemblyOptional ? choiceRow(`Torenkraan (staat er al sinds missie 12)`, [{ label: 'Direct beginnen', sel: !p.assemble, on: () => { p.assemble = false; } }, { label: `Zelf opbouwen (+${Math.round(ASSEMBLY_XP_BONUS * 100)} % XP)`, sel: !!p.assemble, on: () => { p.assemble = true; } }]) : null,
           choiceRow('Moeilijkheidsgraad', (Object.keys(DIFFICULTIES) as DifficultyId[]).map((d) => ({ label: DIFFICULTIES[d].label, sel: p.difficulty === d, on: () => { p.difficulty = d; this.save.settings.difficulty = d; this.persist(); } }))),
           h('div', { class: 'muted', style: 'font-size:.85em' }, DIFFICULTIES[p.difficulty].description),
@@ -687,12 +722,16 @@ export class App {
     let payout: Payout | null = null;
     let challengeLine: HTMLElement | null = null;
     const m = sim.mission;
-    if (success && mode === 'career') {
-      const lifted = m.loads.reduce((a, l) => a + getLoad(l.type).massKg / 1000, 0);
-      payout = applyMissionResult(this.save, m, score, sim.time, sim.missionSpec.cfg.id, sim.metrics.damage, lifted);
+    let settlement: Settlement | null = null;
+    if (mode === 'career') {
+      const plan: JobPlan = { craneId: sim.missionSpec.cfg.id, quote: this.plan?.quote ?? 'normal', insured: !!this.plan?.insured, mats: sim.mats };
+      settlement = settleJob(this.save, m, plan, { success, score: success ? score : null, time: sim.time, damagePct: sim.metrics.damage, violations: sim.metrics.safetyViolations, inspectionCost: sim.inspection?.cost });
+      if (success) {
+        const lifted = m.loads.reduce((a, l) => a + getLoad(l.type).massKg / 1000, 0);
+        payout = applyMissionResult(this.save, m, score, sim.time, sim.missionSpec.cfg.id, sim.metrics.damage, lifted, false);
+      }
+      applySettlement(this.save, settlement);
       this.persist();
-    } else if (mode === 'career') {
-      payout = null;
     }
     if (mode === 'challenge' && this.session?.challengeId) {
       const ch = CHALLENGES.find((c) => c.id === this.session!.challengeId)!;
@@ -711,18 +750,17 @@ export class App {
       breakdown.append(h('div', null, `${SCORE_LABELS[k]} (${Math.round(SCORE_WEIGHTS[k] * 100)} %)`, h('div', { class: 'bar' }, h('i', { style: `width:${v}%` }))), h('div', { style: 'font-family:var(--mono)' }, `${v}`));
     }
     const next = mode === 'career' && success ? MISSIONS.find((x) => x.number === m.number + 1) : undefined;
-    const pay = payout
+    const signed = (v: number) => `${v >= 0 ? '+' : '−'}${formatMoney(Math.abs(v))}`;
+    const pay = settlement
       ? h(
           'div',
-          { class: 'payout' },
-          h('div', null, h('span', null, 'Basisbeloning'), h('span', null, formatMoney(payout.baseMoney))),
-          payout.starBonus !== 0 ? h('div', null, h('span', null, 'Sterrenfactor'), h('span', null, `${payout.starBonus >= 0 ? '+' : ''}${formatMoney(payout.starBonus)}`)) : null,
-          payout.repeatPenalty > 0 ? h('div', null, h('span', null, 'Herhaalde opdracht (35 %)'), h('span', null, `−${formatMoney(payout.repeatPenalty)}`)) : null,
-          payout.rent > 0 ? h('div', null, h('span', null, 'Kraanhuur'), h('span', null, `−${formatMoney(payout.rent)}`)) : null,
-          h('div', { class: 'tot' }, h('span', null, 'Uitbetaald'), h('span', null, `${formatMoney(payout.money)} · +${payout.xp} XP`)),
-          payout.newLicense ? h('div', { style: 'color:var(--green)' }, h('span', null, `Nieuwe licentie: ${LICENSE_LABELS[m.reward.license!]}`), h('span', null, '✓')) : null,
-          payout.newLivery ? h('div', { style: 'color:var(--green)' }, h('span', null, `Speciale uitvoering vrijgespeeld: ${LIVERIES[m.reward.livery!]?.label}`), h('span', null, '✓')) : null,
-          payout.wear > 0 ? h('div', { class: 'muted' }, h('span', null, 'Slijtage eigen kraan'), h('span', null, `conditie ${Math.round((this.save.craneCondition[sim.missionSpec.cfg.id] ?? 1) * 100)} %`)) : null,
+          { class: 'payout', 'data-testid': 'settlement' },
+          ...settlement.lines.map((l) => h('div', null, h('span', null, l.label), h('span', { style: l.amount < 0 ? 'color:#ff8f84' : '' }, signed(l.amount)))),
+          h('div', { class: 'tot' }, h('span', null, 'Resultaat opdracht'), h('span', null, `${signed(settlement.total)}${payout ? ` · +${payout.xp} XP` : ''}`)),
+          h('div', { class: 'muted' }, h('span', null, 'Reputatie'), h('span', null, `${Math.round(settlement.reputation)}/100 (${settlement.repDelta >= 0 ? '+' : ''}${settlement.repDelta})`)),
+          payout && payout.newLicense ? h('div', { style: 'color:var(--green)' }, h('span', null, `Nieuwe licentie: ${LICENSE_LABELS[m.reward.license!]}`), h('span', null, '✓')) : null,
+          payout && payout.newLivery ? h('div', { style: 'color:var(--green)' }, h('span', null, `Speciale uitvoering vrijgespeeld: ${LIVERIES[m.reward.livery!]?.label}`), h('span', null, '✓')) : null,
+          payout && payout.wear > 0 ? h('div', { class: 'muted' }, h('span', null, 'Slijtage eigen kraan'), h('span', null, `conditie ${Math.round((this.save.craneCondition[sim.missionSpec.cfg.id] ?? 1) * 100)} %`)) : null,
         )
       : null;
     this.openOverlay(
@@ -1108,6 +1146,80 @@ export class App {
     );
     this.openOverlay(panel);
     preview();
+  }
+
+  /** Inspectierapport na een stillegging: oorzaak, bevindingen en kosten; daarna verder werken. */
+  private showInspectionReport(sim: Simulation): void {
+    const ins = sim.inspection;
+    if (!ins || sim.outcome !== 'running' || this.session?.mode === 'demo') return;
+    this.scene?.setPaused(true);
+    this.input.enabled = false;
+    const close = () => {
+      this.closeOverlay();
+      this.scene?.setPaused(false);
+      this.input.enabled = true;
+    };
+    this.openOverlay(
+      h(
+        'div',
+        { class: 'screen dim' },
+        h(
+          'div',
+          { class: 'dialog panel lmi-panel', 'data-testid': 'inspection-report' },
+          h('h2', null, 'Inspectierapport'),
+          h('p', { class: 'muted' }, `Na ${Math.round(ins.start)} s werk stilgelegd${ins.until > ins.start ? ` (${Math.round(ins.until - ins.start)} s)` : ''}. Opdrachtgever: ${sim.mission.client?.name ?? '—'}.`),
+          h('ul', null, ...ins.findings.map((f) => h('li', null, f))),
+          h('div', { class: 'check bad' }, `Kosten stillegging en inspectie: ${formatMoney(ins.cost)} — worden met de opdracht verrekend. Reputatie −3.`),
+          h('div', { class: 'row', style: 'margin-top:1em' }, h('button', { class: 'btn primary', 'data-testid': 'inspection-continue', onclick: close }, 'Werk hervatten')),
+        ),
+      ),
+    );
+  }
+
+  /** Offerte, verzekering en de stand van het bedrijf. */
+  private businessChoices(m: MissionDef, p: PlanChoice): (HTMLElement | null)[] {
+    const rerender = () => this.showPlanning(m, p);
+    const b = this.save.business;
+    const q = p.quote ?? 'normal';
+    const quoteRow = h('div', null, h('div', { class: 'muted', style: 'font-size:.85em' }, `Offerte aan ${m.client?.name ?? 'de opdrachtgever'} — reputatie ${Math.round(b.reputation)}/100`), h('div', { class: 'choice' }, ...(Object.keys(QUOTES) as Quote[]).map((k) => h('button', { class: `btn small${q === k ? ' sel' : ''}`, 'data-testid': `quote-${k}`, onclick: () => { p.quote = k; rerender(); } }, `${QUOTES[k].label} · ${formatMoney(m.reward.money * QUOTES[k].pay * reputationFactor(b.reputation))} · kans ${Math.round(winChance(this.save, k) * 100)} %`))));
+    const ins = h('div', null, h('div', { class: 'muted', style: 'font-size:.85em' }, 'Verzekering'), h('div', { class: 'choice' }, h('button', { class: `btn small${p.insured ? ' sel' : ''}`, onclick: () => { p.insured = true; rerender(); } }, `CAR-verzekering (${formatMoney(insurancePremium(m))}, eigen risico ${formatMoney(DEDUCTIBLE)})`), h('button', { class: `btn small${!p.insured ? ' sel' : ''}`, onclick: () => { p.insured = false; rerender(); } }, 'Zelf het risico dragen')));
+    const costs = h('div', { class: 'muted', style: 'font-size:.78em;margin:.2em 0 .5em' }, `Kosten vooraf: huur ${formatMoney(rentCost(this.save, p.craneId))} · matten ${formatMoney(matsCost(p.craneId, p.mats ?? m.mats ?? 'timber'))}${p.insured ? ` · premie ${formatMoney(insurancePremium(m))}` : ''}. Week ${b.week}, opdracht ${b.weekJobs + 1} van ${JOBS_PER_WEEK} (daarna vaste lasten van je vloot).`);
+    const rej = p.rejected ? h('div', { class: 'check bad', 'data-testid': 'quote-rejected' }, 'De opdrachtgever heeft voor een concurrent gekozen. Probeer het opnieuw met een scherpere prijs, of bouw eerst je reputatie op.') : null;
+    return [quoteRow, ins, costs, rej];
+  }
+
+  /** Standplaatsen die met deze kraan haalbaar zijn (verschuiving langs x, m). */
+  private standOptions(m: MissionDef, craneId: CraneId): { off: number; peak: number; ground: string }[] {
+    const gb = getCrane(craneId).gameBalance;
+    if (gb.anchored || m.tasks.some((t) => t.type === 'drive') || m.assembly) return [];
+    const out: { off: number; peak: number; ground: string }[] = [];
+    for (const off of [-4, -2, 0, 2, 4]) {
+      const mv: MissionDef = { ...m, craneOptions: [craneId], crane: { ...m.crane, x: m.crane.x + off } };
+      const v = validateMission(mv);
+      const f = v.feasibility[0];
+      if (!f?.feasible || v.issues.some((i) => i.severity === 'error')) continue;
+      const g = groundAt(m.ground ?? [], m.crane.x + off, m.groundFallback);
+      out.push({ off, peak: f.peakPercent, ground: `${GROUND_LABEL[g.type]}${g.quality < 0.7 ? ' (zacht)' : ''}` });
+    }
+    return out;
+  }
+
+  /** Planningskeuzes op de bouwplaats: standplaats van de kraan en kraanmatten onder de stempels. */
+  private siteChoices(m: MissionDef, p: PlanChoice, spec: ResolvedCrane): (HTMLElement | null)[] {
+    const rerender = () => this.showPlanning(m, p);
+    const row = (label: string, items: { label: string; sel: boolean; on: () => void }[], note?: string) =>
+      h('div', null, h('div', { class: 'muted', style: 'font-size:.85em' }, label), h('div', { class: 'choice' }, ...items.map((it) => h('button', { class: `btn small${it.sel ? ' sel' : ''}`, onclick: () => { it.on(); rerender(); } }, it.label))), note ? h('div', { class: 'muted', style: 'font-size:.78em;margin-bottom:.4em' }, note) : null);
+    const out: (HTMLElement | null)[] = [];
+    const stands = this.standOptions(m, p.craneId);
+    if (stands.length > 1) {
+      if (!stands.some((s) => s.off === (p.stand ?? 0))) p.stand = stands.reduce((a, b) => (Math.abs(a.off) <= Math.abs(b.off) ? a : b)).off;
+      out.push(row('Standplaats van de kraan', stands.map((s) => ({ label: `${s.off === 0 ? 'gepland' : `${s.off > 0 ? '+' : '−'}${Math.abs(s.off)} m`} · ${Math.round(s.peak)} % · ${s.ground}`, sel: (p.stand ?? 0) === s.off, on: () => { p.stand = s.off; } })), 'Dichterbij de lasten = meer capaciteit, maar soms op zachtere grond of krap tussen obstakels.'));
+    }
+    if (spec.gb.outriggerCount === 4) {
+      const cur = p.mats ?? m.mats ?? 'timber';
+      out.push(row('Onder de stempels', MATS.map((mt) => ({ label: matLabel(spec.gb.maxCapacityT, mt.id), sel: cur === mt.id, on: () => { p.mats = mt.id; } })), 'Grotere matten verlagen de bodemdruk; zonder matten zakt een stempel op zachte grond weg.'));
+    }
+    return out;
   }
 
   /** Geregisseerde les: instructeur via de portofoon, markering in de wereld, signaalgever zwijgt zolang. */

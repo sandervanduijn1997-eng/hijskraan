@@ -8,6 +8,7 @@ export type WarningId =
   | 'overPeople'
   | 'groundPressure'
   | 'zoneHold'
+  | 'inspection'
   | 'slingAngle'
   | 'rigTilt'
   | 'overload'
@@ -41,6 +42,7 @@ const PRIORITY: Record<WarningId, number> = {
   overPeople: 97,
   groundPressure: 88,
   zoneHold: 35,
+  inspection: 99,
   slingAngle: 62,
   rigTilt: 42,
   lmiSetup: 30,

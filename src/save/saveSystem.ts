@@ -90,6 +90,8 @@ export interface SaveData {
   challengeBest: Record<string, number>;
   settings: Settings;
   stats: { lifts: number; tonnage: number; playTime: number };
+  /** Bedrijf: reputatie (0–100), aantal offertes, opdrachten deze week en weeknummer. */
+  business: { reputation: number; quotes: number; weekJobs: number; week: number };
 }
 
 export const defaultSettings = (): Settings => ({
@@ -122,6 +124,7 @@ export const defaultSave = (): SaveData => ({
   challengeBest: {},
   settings: defaultSettings(),
   stats: { lifts: 0, tonnage: 0, playTime: 0 },
+  business: { reputation: 50, quotes: 0, weekJobs: 0, week: 1 },
 });
 
 const LICENSES: LicenseId[] = ['basis', 'toren', 'industrie', 'terrein', 'zwaar', 'specialist', 'eind'];
@@ -202,6 +205,8 @@ export function sanitizeSave(raw: unknown): { data: SaveData; repaired: boolean 
   }
   const st = isObj(d.stats) ? d.stats : {};
   out.stats = { lifts: num(st.lifts, 0, 0), tonnage: num(st.tonnage, 0, 0), playTime: num(st.playTime, 0, 0) };
+  const bz = isObj(d.business) ? d.business : {};
+  out.business = { reputation: num(bz.reputation, 50, 0, 100), quotes: num(bz.quotes, 0, 0), weekJobs: num(bz.weekJobs, 0, 0, 4), week: num(bz.week, 1, 1) };
   // vergelijk met origineel om te melden of er gerepareerd is
   if (raw.version !== SAVE_VERSION || !isObj(raw.settings) || !Array.isArray(raw.ownedCranes)) repaired = true;
   return { data: out, repaired };

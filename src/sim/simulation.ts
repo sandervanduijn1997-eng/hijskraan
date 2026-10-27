@@ -74,7 +74,7 @@ export interface TaskRuntime {
 }
 
 export type SimEvent =
-  | { type: 'impact'; x: number; y: number; speed: number; mass: number; landing: boolean; obstacle: boolean }
+  | { type: 'impact'; x: number; y: number; z: number; speed: number; mass: number; landing: boolean; obstacle: boolean }
   | { type: 'attach' }
   | { type: 'detach' }
   | { type: 'placed'; loadId: string }
@@ -86,6 +86,7 @@ export type SimEvent =
   | { type: 'slingBreak' }
   | { type: 'overPeople' }
   | { type: 'surprise'; text: string }
+  | { type: 'inspection'; phase: 'start' | 'report' }
   | { type: 'towerPart'; part: TowerPartKind }
   | { type: 'craneSwitch' }
   | { type: 'warning'; warning: Warning };
@@ -123,6 +124,18 @@ export interface BodySnapshot {
 }
 
 const HOOK_ID = '__hook__';
+/** Duur van de stillegging na een zwaar incident (s). */
+const INSPECTION_STOP_S = 20;
+
+export interface Inspection {
+  causes: string[];
+  start: number;
+  until: number;
+  cost: number;
+  findings: string[];
+  reported: boolean;
+}
+
 const ATTACH_DIST = 1.1;
 /** Toelaatbaar mastmoment tijdens de montage (tm): zonder het eerste ballastblok vóór de giek wordt dit overschreden. */
 export const ERECTION_MOMENT_LIMIT_TM = 320;
@@ -213,6 +226,8 @@ export class Simulation {
   zoneReadyAt = 0;
   readonly hiddenZones = new Set<string>();
   private liftedSince = -1;
+  /** Stillegging en inspectie na een zwaar incident (één per opdracht; latere incidenten tellen mee). */
+  inspection: Inspection | null = null;
   outcome: MissionOutcome = 'running';
   failReason = '';
   score: ScoreBreakdown | null = null;
@@ -660,6 +675,8 @@ export class Simulation {
       input = emptyInput();
     }
     this.time += dt;
+    // werk stilgelegd na een incident: de kraan staat stil tot de inspecteur is geweest
+    if (this.stopped) input = emptyInput();
     this.warnings.begin();
 
     // wind
@@ -733,6 +750,7 @@ export class Simulation {
     updateTilt(this.crane, this.stability?.tippingRatio ?? 0, dt, this.difficulty.tipping && !this.spec.gb.anchored);
 
     this.processImpacts(ctl);
+    this.updateInspection();
     this.updateSite(dt);
     this.updateSurprise();
     this.measure(dt);
@@ -855,7 +873,7 @@ export class Simulation {
       const mass = l ? l.cb.body.mass : this.hookMassKg;
       const landingSurface = e.otherId === 'ground' || (other?.landable ?? false) || !!otherLoad;
       const isLanding = e.landing && landingSurface;
-      this.events.push({ type: 'impact', x: e.x, y: e.y, speed: e.speed, mass, landing: isLanding, obstacle: !!other && !isLanding });
+      this.events.push({ type: 'impact', x: e.x, y: e.y, z: e.z, speed: e.speed, mass, landing: isLanding, obstacle: !!other && !isLanding });
       if (isHook) {
         if (other && !isLanding && e.speed > 0.25) {
           this.metrics.collisions++;
@@ -871,6 +889,7 @@ export class Simulation {
           const dmg = (e.speed - lim) * 40 * (0.5 + l.type.fragility) * ds;
           l.damage += dmg;
           this.metrics.damage += dmg;
+          if (dmg >= 8) this.incident(`${l.type.name} hard neergezet (${e.speed.toFixed(1)} m/s)`, dmg);
         }
       } else if (other || otherLoad) {
         if (e.speed > 0.15) {
@@ -878,6 +897,7 @@ export class Simulation {
           const dmg = (2 + e.speed * 25) * (0.5 + l.type.fragility) * ds;
           l.damage += dmg;
           this.metrics.damage += dmg;
+          if (dmg >= 6) this.incident(`${l.type.name} botste tegen ${other?.label ?? 'een andere last'} (${e.speed.toFixed(1)} m/s)`, dmg);
           if (other && (other.onHit === 'fail' || this.mission.requirements.noCollision)) {
             this.fail(`Botsing met ${other.label ?? 'een obstakel'} — deze opdracht staat geen contact toe.`);
           }
@@ -890,6 +910,7 @@ export class Simulation {
         this.metrics.collisions++;
         this.metrics.damage += 4 * ds;
         this.events.push({ type: 'boomHit', x: this.geom.tip.x, y: this.geom.tip.y });
+        this.incident(`Giek raakte ${ctl.boomHit.label ?? 'een obstakel'}`, 10);
         if (ctl.boomHit.onHit === 'fail' || this.mission.requirements.noCollision) this.fail(`De giek raakte ${ctl.boomHit.label ?? 'een obstakel'}.`);
       }
     } else this.boomHitLatched = false;
@@ -994,10 +1015,49 @@ export class Simulation {
     }
     const v = this.site.update(dt, danger);
     if (v > 0) {
+      this.incident('Last boven personen gedraaid', 5);
       this.metrics.safetyViolations += v;
       this.events.push({ type: 'overPeople' });
       if (this.difficulty.strictOutriggers) this.fail('Last boven personen gedraaid — het werk is stilgelegd.');
     }
+  }
+
+  /**
+   * Zwaar incident: het werk wordt stilgelegd tot de inspecteur is geweest (op Oefenen niet), daarna
+   * volgt een rapport met bevindingen en kosten. Volgende incidenten worden aan hetzelfde rapport toegevoegd.
+   */
+  private incident(cause: string, severity: number): void {
+    if (this.freePlay) return;
+    const scale = 1 + this.mission.chapter * 0.25;
+    const extra = Math.round((150 + severity * 30) * scale);
+    if (this.inspection) {
+      this.inspection.causes.push(cause);
+      this.inspection.cost += extra;
+      return;
+    }
+    const stop = this.difficulty.id === 'practice' ? 0 : INSPECTION_STOP_S;
+    this.inspection = { causes: [cause], start: this.time, until: this.time + stop, cost: Math.round(400 * scale) + extra, findings: [], reported: false };
+    this.events.push({ type: 'inspection', phase: 'start' });
+  }
+
+  /** Werk stilgelegd? (besturing geblokkeerd tot de inspecteur klaar is) */
+  get stopped(): boolean {
+    return !!this.inspection && !this.inspection.reported && this.time < this.inspection.until;
+  }
+
+  private updateInspection(): void {
+    const ins = this.inspection;
+    if (!ins || ins.reported || this.time < ins.until) return;
+    ins.reported = true;
+    const f: string[] = [...ins.causes];
+    const worst = this.loads.reduce((a, l) => (l.damage > a.damage ? l : a), this.loads[0]);
+    if (worst && worst.damage > 1) f.push(`Schade aan ${worst.type.name.toLowerCase()}: ${Math.round(worst.damage)} %${worst.damage > 30 ? ' — last moet gekeurd worden' : ''}`);
+    if (this.metrics.maxLoadPct > 100) f.push(`Lastmomentbegrenzer overschreden: ${Math.round(this.metrics.maxLoadPct)} %`);
+    if (this.metrics.safetyViolations > 0) f.push(`Veiligheidsovertredingen: ${this.metrics.safetyViolations}`);
+    if (this.crane.tilt > 0.002) f.push('Kraan stond scheef — stempels en ondergrond gecontroleerd');
+    f.push(`Kraan gecontroleerd: ${this.metrics.maxLoadPct > 110 ? 'giek en lastmomentbegrenzer moeten worden gekeurd' : 'geen constructieve schade, werk mag worden hervat'}`);
+    ins.findings = f;
+    this.events.push({ type: 'inspection', phase: 'report' });
   }
 
   /**
@@ -1147,6 +1207,7 @@ export class Simulation {
       else if (worst > 0.85) W.raise('groundPressure', 'caution', `Bodemdruk stempel ${wi + 1} hoog: ${Math.round(worst * 100)} % van toegestaan`);
     }
     if (this.site?.peopleUnderLoad) W.raise('overPeople', 'critical', 'Last boven personen — stop!');
+    if (this.stopped) W.raise('inspection', 'critical', `Werk stilgelegd — inspecteur onderweg (nog ${Math.ceil(this.inspection!.until - this.time)} s)`);
     if (this.time < this.zoneReadyAt) W.raise('zoneHold', 'info', `Afzetplek nog niet vrij — wachten (nog ${Math.ceil(this.zoneReadyAt - this.time)} s)`);
     if (this.attached && this.rig?.choice) {
       const rig = this.rig;

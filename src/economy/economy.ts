@@ -54,9 +54,12 @@ export function computePayout(save: SaveData, m: MissionDef, score: ScoreBreakdo
 }
 
 /** Pas een geslaagde missie toe op het savebestand (muteert). */
-export function applyMissionResult(save: SaveData, m: MissionDef, score: ScoreBreakdown, time: number, craneId: CraneId, damagePct: number, liftedT: number): Payout {
+/**
+ * `addMoney` = false: het geld wordt apart afgerekend (bedrijfsafrekening met offerte, kosten en boetes).
+ */
+export function applyMissionResult(save: SaveData, m: MissionDef, score: ScoreBreakdown, time: number, craneId: CraneId, damagePct: number, liftedT: number, addMoney = true): Payout {
   const p = computePayout(save, m, score, craneId);
-  save.money += p.money;
+  if (addMoney) save.money += p.money;
   save.xp += p.xp;
   const rec = save.completed[m.id];
   if (!rec) save.completed[m.id] = { stars: score.stars, bestScore: score.total, bestTime: time, completions: 1 };
