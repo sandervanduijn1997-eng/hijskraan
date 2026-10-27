@@ -362,7 +362,7 @@ export class Bot {
     const s = this.sim.crane;
     if (s.outriggerJack.some((j) => j > 0) || s.outriggerBeam.some((b) => b > 0)) {
       this.phase = 'stempels inhalen';
-      this.sim.outriggerAuto.outriggerAuto = 'retract';
+      this.sim.setOutriggerAuto('retract');
       while (s.outriggerJack.some((j) => j > 0) || s.outriggerBeam.some((b) => b > 0)) yield emptyInput();
     }
   }
@@ -371,7 +371,7 @@ export class Bot {
     this.phase = 'stempels uitzetten';
     let t = 0;
     while (this.sim.support.mode !== 'outriggers' && t < 60 * 40) {
-      if (this.sim.outriggerAuto.outriggerAuto === 'none') this.sim.outriggerAuto.outriggerAuto = 'deploy';
+      if (this.sim.outriggerAuto.outriggerAuto === 'none') this.sim.setOutriggerAuto('deploy');
       t++;
       yield emptyInput();
     }

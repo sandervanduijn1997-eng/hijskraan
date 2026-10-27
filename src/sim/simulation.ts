@@ -49,6 +49,8 @@ import type { DifficultyProfile } from './difficulty';
 import { DIFFICULTIES } from './difficulty';
 import type { Rig, RigChoice } from './rigging';
 import { SiteLife, WORKERS_BY_ENV } from './site';
+import type { MarkerKind, Recording } from './recorder';
+import { Recorder, inputAt } from './recorder';
 import type { Danger } from './site';
 import { BREAK_FACTOR, MAX_SLING_ANGLE, buildRig, legLoadT, rigUtilisation, standardRig } from './rigging';
 import type { Warning } from './warnings';
@@ -228,6 +230,10 @@ export class Simulation {
   private liftedSince = -1;
   /** Stillegging en inspectie na een zwaar incident (één per opdracht; latere incidenten tellen mee). */
   inspection: Inspection | null = null;
+  /** Opname voor de herhaling en het aantal gezette stappen. */
+  readonly recorder = new Recorder();
+  stepCount = 0;
+  private evMark = 0;
   outcome: MissionOutcome = 'running';
   failReason = '';
   score: ScoreBreakdown | null = null;
@@ -528,6 +534,7 @@ export class Simulation {
 
   /** Stel de lastmomentbegrenzer in (vanuit de cabine). */
   configureLmi(cfg: Omit<LmiConfig, 'configured'>): void {
+    this.recorder.action({ step: this.stepCount, kind: 'lmi', cfg: { ...cfg } });
     this.lmi = { ...cfg, configured: true };
   }
 
@@ -617,6 +624,7 @@ export class Simulation {
 
   /** Aanslaan / afkoppelen (toets T). Geeft een melding terug. */
   toggleRigging(): string {
+    this.recorder.action({ step: this.stepCount, kind: 'rig' });
     if (this.outcome !== 'running') return '';
     if (this.attached) {
       const l = this.attached;
@@ -638,6 +646,7 @@ export class Simulation {
 
   /** Aanslaan met een zelf gekozen aanslag (na het aanslagpaneel). */
   attachWith(choice: RigChoice): string {
+    this.recorder.action({ step: this.stepCount, kind: 'attachWith', choice: { ...choice } });
     if (this.outcome !== 'running' || this.attached) return '';
     const c = this.attachCandidate();
     if (!c) return 'Geen last binnen bereik van de haak.';
@@ -669,6 +678,7 @@ export class Simulation {
   }
 
   step(input: CraneInput = emptyInput(), dt = FIXED_DT): void {
+    this.recorder.input(this.stepCount, input);
     this.snapshot();
     if (this.outcome !== 'running' && !this.crane.tipped) {
       // na afloop blijft de wereld nog uitlopen, maar zonder besturing
@@ -759,6 +769,35 @@ export class Simulation {
     if (this.warnings.anyCritical() && this.attached) this.metrics.criticalWarningTime += dt;
     this.updateTasks(dt);
     this.checkFailure(dt);
+    this.recordStep();
+  }
+
+  /** Tijdlijn (10 Hz) en markeringen voor de herhaling en de nabespreking. */
+  private recordStep(): void {
+    const r = this.recorder;
+    if (this.stepCount % 12 === 0) r.sample({ t: this.time, sway: this.swayDeg, load: this.attached ? this.loadPct : 0, hookY: this.hookPoint().y });
+    for (let i = this.evMark; i < this.events.length; i++) {
+      const e = this.events[i];
+      const m = (kind: MarkerKind, text: string, bad = false) => r.marker({ t: this.time, step: this.stepCount, kind, text, bad });
+      if (e.type === 'attach') m('attach', 'Aangeslagen');
+      else if (e.type === 'detach') m('detach', 'Afgekoppeld');
+      else if (e.type === 'placed') m('placed', 'Geplaatst');
+      else if (e.type === 'impact' && e.obstacle && e.speed > 0.2) m('impact', `Botsing (${e.speed.toFixed(1)} m/s)`, true);
+      else if (e.type === 'impact' && e.landing && e.speed > 0.5) m('impact', `Harde landing (${e.speed.toFixed(1)} m/s)`, true);
+      else if (e.type === 'warning' && e.warning.level === 'critical') m('warning', e.warning.text, true);
+      else if (e.type === 'fail') m('fail', e.reason, true);
+      else if (e.type === 'success') m('success', 'Opdracht voltooid');
+      else if (e.type === 'surprise') m('surprise', e.text);
+      else if (e.type === 'inspection' && e.phase === 'start') m('inspection', 'Werk stilgelegd', true);
+    }
+    this.evMark = this.events.length;
+    this.stepCount++;
+  }
+
+  /** Stempelprocedure starten of stoppen (vanuit de cabine). */
+  setOutriggerAuto(mode: 'none' | 'deploy' | 'retract'): void {
+    this.recorder.action({ step: this.stepCount, kind: 'outriggerAuto', mode });
+    this.outriggerAuto.outriggerAuto = mode;
   }
 
   private computeStabilityModel(): void {
@@ -848,6 +887,7 @@ export class Simulation {
 
   /** Kraanmatten leggen of wisselen (alleen met de vijzels omhoog). */
   cycleMats(): string {
+    this.recorder.action({ step: this.stepCount, kind: 'mats' });
     if (this.spec.gb.outriggerCount !== 4) return 'Deze kraan staat niet op stempels.';
     if (this.crane.outriggerJack.some((j) => j > 0.05)) return 'Eerst de vijzels omhoog — dan kunnen de matten eronder.';
     const i = MATS.findIndex((m) => m.id === this.mats);
@@ -1439,6 +1479,7 @@ export class Simulation {
   drainEvents(): SimEvent[] {
     const e = this.events.slice();
     this.events.length = 0;
+    this.evMark = 0;
     return e;
   }
 
@@ -1480,4 +1521,18 @@ export function taskLabel(t: TaskDef, m: MissionDef): string {
     case 'switchCrane':
       return t.label ?? 'Overstappen naar de missiekraan';
   }
+}
+
+/** Eén stap van een herhaling: eerst de handelingen van de speler bij deze stap, dan de opgenomen invoer. */
+export function replayStep(sim: Simulation, rec: Recording): void {
+  const n = sim.stepCount;
+  for (const a of rec.actions) {
+    if (a.step !== n) continue;
+    if (a.kind === 'rig') sim.toggleRigging();
+    else if (a.kind === 'attachWith') sim.attachWith(a.choice);
+    else if (a.kind === 'lmi') sim.configureLmi(a.cfg);
+    else if (a.kind === 'mats') sim.cycleMats();
+    else sim.setOutriggerAuto(a.mode);
+  }
+  sim.step(inputAt(rec, n) ?? emptyInput());
 }

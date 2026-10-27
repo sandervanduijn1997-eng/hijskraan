@@ -8,6 +8,9 @@ import type { LmiSetup } from '../cranes/models/lmi';
 import { LMI_SETUP_LABEL, actualCapacityT, lmiCapacityT, maxParts, partOptions } from '../cranes/models/lmi';
 import type { GearKind, PointMode, RigChoice } from '../sim/rigging';
 import { LessonRunner } from '../sim/lesson';
+import { makeDebrief } from '../sim/debrief';
+import type { Recording } from '../sim/recorder';
+import { FIXED_DT } from '../physics/constants';
 import type { JobPlan, Quote, Settlement } from '../economy/business';
 import { DEDUCTIBLE, JOBS_PER_WEEK, QUOTES, applySettlement, insurancePremium, matsCost, quoteAccepted, reputationFactor, settleJob, winChance } from '../economy/business';
 import type { ResolvedCrane } from '../cranes/models/craneSpec';
@@ -259,6 +262,10 @@ export class App {
       overview: scene.overviewActive,
       timeLimitActive: sim.difficulty.timer && this.session?.mode === 'career',
     });
+    if (this.session?.mode === 'replay') {
+      this.updateReplayBar(sim, scene);
+      return;
+    }
     this.updateLesson(sim, scene);
     if (this.telemetrySim !== sim) {
       this.telemetrySim = sim;
@@ -347,6 +354,7 @@ export class App {
           break;
         case 'success':
         case 'fail':
+          if (this.session?.mode === 'replay') break;
           this.telemetry.end(e.type === 'success' ? 'success' : 'failed', e.type === 'fail' ? e.reason : undefined, sim.score?.stars);
           audio.ui(e.type === 'success' ? 'success' : 'fail');
           if (!this.resultShown) {
@@ -383,7 +391,7 @@ export class App {
       case 'outriggerAuto': {
         const gb = sim.spec.gb;
         if (gb.outriggerCount === 0 || gb.setupType === 'selfErect') return;
-        sim.outriggerAuto.outriggerAuto = sim.crane.outriggerJack.every((j) => j >= 0.999) ? 'retract' : 'deploy';
+        sim.setOutriggerAuto(sim.crane.outriggerJack.every((j) => j >= 0.999) ? 'retract' : 'deploy');
         this.hud?.toast(sim.outriggerAuto.outriggerAuto === 'deploy' ? 'Automatische procedure: stempels uitzetten' : 'Automatische procedure: stempels inhalen');
         break;
       }
@@ -713,17 +721,26 @@ export class App {
   // ------------------------------------------------------------------ resultaten
 
   private showResults(sim: Simulation): void {
+    this.showResultsView(sim, true);
+  }
+
+  /** Resultaatscherm. `settle` = false: opnieuw tonen na een herhaling (niet opnieuw afrekenen of opslaan). */
+  private showResultsView(sim: Simulation, settle: boolean): void {
     const sc = this.scene;
     sc?.setPaused(true);
     this.input.enabled = false;
-    const mode = this.session?.mode ?? 'career';
+    if (settle) this.lastResult = { session: this.session, payout: null, settlement: null };
+    const res = this.lastResult!;
+    this.resultsSim = sim;
+    const mode = res.session?.mode ?? 'career';
     const success = sim.outcome === 'success';
     const score = sim.score!;
     let payout: Payout | null = null;
     let challengeLine: HTMLElement | null = null;
     const m = sim.mission;
-    let settlement: Settlement | null = null;
-    if (mode === 'career') {
+    let settlement: Settlement | null = res.settlement;
+    payout = res.payout;
+    if (settle && mode === 'career') {
       const plan: JobPlan = { craneId: sim.missionSpec.cfg.id, quote: this.plan?.quote ?? 'normal', insured: !!this.plan?.insured, mats: sim.mats };
       settlement = settleJob(this.save, m, plan, { success, score: success ? score : null, time: sim.time, damagePct: sim.metrics.damage, violations: sim.metrics.safetyViolations, inspectionCost: sim.inspection?.cost });
       if (success) {
@@ -732,8 +749,10 @@ export class App {
       }
       applySettlement(this.save, settlement);
       this.persist();
+      res.settlement = settlement;
+      res.payout = payout;
     }
-    if (mode === 'challenge' && this.session?.challengeId) {
+    if (settle && mode === 'challenge' && this.session?.challengeId) {
       const ch = CHALLENGES.find((c) => c.id === this.session!.challengeId)!;
       const r = ch.rate(sim.metrics);
       const val = success && r.pass ? r.score : 0;
@@ -750,6 +769,23 @@ export class App {
       breakdown.append(h('div', null, `${SCORE_LABELS[k]} (${Math.round(SCORE_WEIGHTS[k] * 100)} %)`, h('div', { class: 'bar' }, h('i', { style: `width:${v}%` }))), h('div', { style: 'font-family:var(--mono)' }, `${v}`));
     }
     const next = mode === 'career' && success ? MISSIONS.find((x) => x.number === m.number + 1) : undefined;
+    // nabespreking: één tip en het moment om terug te kijken
+    const rec = sim.recorder.rec;
+    const db = makeDebrief(rec, success ? score : null, sim.metrics, success ? '' : sim.failReason);
+    if (res.session) this.lastRun = { cfg: res.session, rec };
+    const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    const debrief = h(
+      'div',
+      { class: 'debrief', 'data-testid': 'debrief' },
+      h('div', null, h('b', null, 'Tip voor de volgende keer: '), db.tip),
+      db.moment ? h('div', { class: 'muted', style: 'margin-top:.3em' }, `${success ? 'Lastigste moment' : 'Hier ging het mis'}: ${mmss(db.moment.t)} — ${db.moment.text}`) : null,
+      h(
+        'div',
+        { class: 'row', style: 'margin-top:.5em' },
+        h('button', { class: 'btn small', 'data-testid': 'btn-replay', onclick: () => this.startReplay(0) }, '▶ Herhaling'),
+        db.moment ? h('button', { class: 'btn small', 'data-testid': 'btn-replay-moment', onclick: () => this.startReplay(Math.max(0, db.moment!.step - 6 * 60)) }, `▶ Bekijk het moment (${mmss(db.moment.t)})`) : null,
+      ),
+    );
     const signed = (v: number) => `${v >= 0 ? '+' : '−'}${formatMoney(Math.abs(v))}`;
     const pay = settlement
       ? h(
@@ -774,6 +810,7 @@ export class App {
           success ? h('div', { class: 'big-stars' }, stars(score.stars)) : h('div', { class: 'check bad' }, sim.failReason),
           h('div', { class: 'muted' }, `Totaalscore ${score.total}/100 · tijd ${sim.time.toFixed(0)} s · max. slinger ${sim.metrics.maxSwayDeg.toFixed(1)}° · botsingen ${sim.metrics.collisions} · schade ${sim.metrics.damage.toFixed(1)} % · max. belasting ${Math.round(sim.metrics.maxLoadPct)} %`),
           breakdown,
+          debrief,
           challengeLine,
           pay,
           mode === 'practice' ? h('p', { class: 'muted' }, 'Vrije oefening: geen beloning, wel een score.') : null,
@@ -1148,10 +1185,114 @@ export class App {
     preview();
   }
 
+  /** Laatste gespeelde opdracht (voor de herhaling) en hoe de resultaten weer te openen. */
+  private lastRun: { cfg: SessionConfig; rec: Recording } | null = null;
+  private lastResult: { session: SessionConfig | null; payout: Payout | null; settlement: Settlement | null } | null = null;
+  private replayBar: { root: HTMLElement; head: HTMLElement; total: number } | null = null;
+  private resultsSim: Simulation | null = null;
+
+  /** Herhaling starten vanaf een stap (0 = begin). Vrije camera met de muis; besturing staat uit. */
+  private startReplay(fromStep: number): void {
+    const run = this.lastRun;
+    if (!run) return;
+    this.closeOverlay();
+    this.input.enabled = true;
+    this.replayBar?.root.remove();
+    this.replayBar = null;
+    this.startScene({ ...run.cfg, mode: 'replay', replay: { rec: run.rec, from: fromStep } });
+    // de sessie onthoudt de oorspronkelijke opdracht (voor "terug naar de resultaten")
+    this.lastRun = run;
+    this.buildReplayBar(run.rec);
+  }
+
+  /** Tijdlijn onder in beeld: slinger en belasting, markeringen, afspeelknoppen en spoelen. */
+  private buildReplayBar(rec: Recording): void {
+    const total = rec.steps * FIXED_DT;
+    const W = Math.min(900, window.innerWidth - 32);
+    const H = 70;
+    const cv = h('canvas', { width: W, height: H, class: 'replay-graph', 'data-testid': 'replay-graph' }) as HTMLCanvasElement;
+    const g = cv.getContext('2d');
+    if (g) {
+      g.fillStyle = 'rgba(10,14,12,0.85)';
+      g.fillRect(0, 0, W, H);
+      const maxSway = Math.max(4, ...rec.samples.map((s) => s.sway));
+      const line = (f: (s: (typeof rec.samples)[number]) => number, color: string) => {
+        g.strokeStyle = color;
+        g.lineWidth = 1.5;
+        g.beginPath();
+        rec.samples.forEach((s, i) => {
+          const x = (s.t / total) * W;
+          const y = H - 4 - f(s) * (H - 10);
+          if (i === 0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        });
+        g.stroke();
+      };
+      line((s) => Math.min(1, s.load / 110), '#f2c400');
+      line((s) => s.sway / maxSway, '#5ab0ff');
+      for (const mk of rec.markers) {
+        g.strokeStyle = mk.bad ? '#ff5b4d' : mk.kind === 'success' || mk.kind === 'placed' ? '#3ee07a' : 'rgba(255,255,255,0.45)';
+        g.lineWidth = mk.bad ? 2 : 1;
+        const x = (mk.t / total) * W;
+        g.beginPath();
+        g.moveTo(x, 0);
+        g.lineTo(x, H);
+        g.stroke();
+      }
+    }
+    const head = h('div', { class: 'replay-head' });
+    const graph = h('div', { class: 'replay-track', style: `width:${W}px;height:${H}px` }, cv, head);
+    graph.addEventListener('click', (ev) => {
+      const r = graph.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, ((ev as MouseEvent).clientX - r.left) / r.width));
+      this.startReplay(Math.round(frac * rec.steps));
+    });
+    const speedBtn = (v: number) => h('button', { class: 'btn small', onclick: () => { if (this.scene) this.scene.timeScale = v; } }, `${v}×`);
+    const bad = rec.markers.filter((m) => m.bad).slice(0, 6);
+    const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    const root = h(
+      'div',
+      { class: 'replay-bar panel', 'data-testid': 'replay-bar' },
+      h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;margin-bottom:.3em' },
+        h('b', null, '⏵ Herhaling'),
+        h('span', { class: 'muted', style: 'font-size:.8em' }, 'geel = belasting · blauw = slinger · rood = fout — klik in de tijdlijn om te spoelen, sleep met de muis voor een vrije camera'),
+      ),
+      graph,
+      h('div', { class: 'row', style: 'margin-top:.4em;flex-wrap:wrap;gap:.3em' },
+        h('button', { class: 'btn small', onclick: () => this.scene?.setPaused(!this.scene.paused) }, '⏯'),
+        speedBtn(0.5), speedBtn(1), speedBtn(2), speedBtn(4),
+        ...bad.map((m) => h('button', { class: 'btn small danger', title: m.text, onclick: () => this.startReplay(Math.max(0, m.step - 6 * 60)) }, `${mmss(m.t)} ${m.text.slice(0, 28)}`)),
+        h('button', { class: 'btn small', style: 'margin-left:auto', 'data-testid': 'replay-exit', onclick: () => this.exitReplay() }, 'Terug naar de resultaten'),
+      ),
+    );
+    this.ui.append(root);
+    this.replayBar = { root, head, total };
+  }
+
+  private updateReplayBar(sim: Simulation, scene: World3D): void {
+    const b = this.replayBar;
+    if (!b) return;
+    b.head.style.left = `${Math.min(100, (sim.time / Math.max(0.01, b.total)) * 100)}%`;
+    if (scene.replayEnded && !scene.paused) scene.setPaused(true);
+  }
+
+  private exitReplay(): void {
+    this.replayBar?.root.remove();
+    this.replayBar = null;
+    const run = this.lastRun;
+    if (!run) return this.backToMenu();
+    // de oorspronkelijke opdracht opnieuw laden en de resultaten tonen zonder opnieuw af te rekenen
+    // de sessie weer op de echte opdracht zetten (voor "opnieuw" en "planning")
+    this.session = run.cfg;
+    const sim = this.resultsSim;
+    if (sim && this.lastResult) this.showResultsView(sim, false);
+    else this.backToMenu();
+  }
+
   /** Inspectierapport na een stillegging: oorzaak, bevindingen en kosten; daarna verder werken. */
   private showInspectionReport(sim: Simulation): void {
     const ins = sim.inspection;
-    if (!ins || sim.outcome !== 'running' || this.session?.mode === 'demo') return;
+    if (!ins || sim.outcome !== 'running' || this.session?.mode === 'demo' || this.session?.mode === 'replay') return;
     this.scene?.setPaused(true);
     this.input.enabled = false;
     const close = () => {

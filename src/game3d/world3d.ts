@@ -9,7 +9,8 @@ import type { MissionDef } from '../missions/data/types';
 import { FIXED_DT, MAX_FRAME_DELTA, MAX_STEPS_PER_FRAME } from '../physics/constants';
 import type { RigidBody } from '../physics/load/rigidBody';
 import type { SimEvent, SimOptions } from '../sim/simulation';
-import { Simulation, hookWidth } from '../sim/simulation';
+import { Simulation, hookWidth, replayStep } from '../sim/simulation';
+import type { Recording } from '../sim/recorder';
 import { lerp } from '../utils/math';
 import type { EdgeAction, InputManager } from '../game/input/inputManager';
 import { ENVIRONMENTS, SKIES } from '../game/render/palette';
@@ -30,13 +31,15 @@ import type { LessonMarker } from '../sim/lesson';
 import { WorldModel, ZoneMarker } from './worldModel';
 import { loadSky, realismEnabled, skyFor } from './realism';
 
-export type SessionMode = 'career' | 'practice' | 'challenge' | 'demo';
+export type SessionMode = 'career' | 'practice' | 'challenge' | 'demo' | 'replay';
 
 export interface SessionConfig {
   mode: SessionMode;
   sim: SimOptions;
   livery: string;
   challengeId?: string;
+  /** Herhaling: opname en de stap waarop het afspelen begint. */
+  replay?: { rec: Recording; from: number };
 }
 
 export interface SceneHooks {
@@ -230,6 +233,22 @@ export class World3D {
     }
     this.computeOverview(m);
     audio.setMachineActive(cfg.mode !== 'demo', pal.indoor ? 0.3 : 0.7);
+    // herhaling: snel doorrekenen tot het startpunt (zonder effecten), daarna gewoon afspelen
+    if (cfg.replay) {
+      let switched = false;
+      while (this.sim.stepCount < Math.min(cfg.replay.from, cfg.replay.rec.steps)) {
+        replayStep(this.sim, cfg.replay.rec);
+        if (this.sim.drainEvents().some((e) => e.type === 'craneSwitch')) switched = true;
+      }
+      if (switched) this.onCraneSwitch();
+    }
+  }
+
+  /** Afspeelsnelheid (herhaling). */
+  timeScale = 1;
+  /** Is de herhaling aan het einde van de opname? */
+  get replayEnded(): boolean {
+    return !!this.cfg.replay && this.sim.stepCount >= this.cfg.replay.rec.steps;
   }
 
   /** Haakblok en kabelparten voor de bediende kraan. */
@@ -346,15 +365,27 @@ export class World3D {
       else if (e === 'overview') this.rig.mode = this.rig.mode === 'overview' ? 'follow' : 'overview';
       else if (e === 'cameraReset') this.rig.reset();
       else if (e === 'cameraMode') this.rig.cycleMode();
-      else this.hooks.onEdge(e, sim);
+      else if (this.cfg.mode !== 'replay' || e === 'pause' || e === 'menu' || e === 'help') this.hooks.onEdge(e, sim);
     }
     const wheel = input.consumeWheel();
     if (wheel) this.rig.zoomBy(wheel);
 
     if (!this.paused) {
-      this.acc += dt;
+      this.acc += dt * this.timeScale;
       let steps = 0;
       while (this.acc >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+        const rp = this.cfg.replay;
+        if (rp) {
+          // herhaling: opgenomen handelingen en invoer, stoppen aan het einde
+          if (sim.stepCount >= rp.rec.steps) {
+            this.acc = 0;
+            break;
+          }
+          replayStep(sim, rp.rec);
+          this.acc -= FIXED_DT;
+          steps++;
+          continue;
+        }
         let inp: CraneInput;
         if (this.cfg.mode === 'demo') {
           this.demoT += FIXED_DT;
