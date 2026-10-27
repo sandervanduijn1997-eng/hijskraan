@@ -274,6 +274,13 @@ export class App {
         case 'slingBreak':
           audio.slingBreak(sim.hookPoint());
           break;
+        case 'surprise':
+          // opdrachtgever of signaalgever via de portofoon
+          audio.radio();
+          this.hud?.radio(e.text);
+          this.hud?.toast(e.text, 4500);
+          if (this.save.settings.signalman === 'voice') speak(e.text);
+          break;
         case 'overPeople':
           // de signaalgever roept altijd, ook als zijn aanwijzingen uit staan
           audio.radio();
@@ -621,7 +628,9 @@ export class App {
           h('p', { class: 'muted' }, h('b', null, 'Leerdoel: '), m.learningGoal),
           h('p', { class: 'muted' }, h('b', null, 'Bedieningstip: '), m.hint),
           h('dl', { class: 'kv' },
+            m.client ? h('dt', null, 'Opdrachtgever') : null, m.client ? h('dd', null, m.client.name) : null,
             h('dt', null, 'Locatie'), h('dd', null, `${ENVIRONMENTS[m.environment].label}`),
+            m.deadline ? h('dt', null, 'Deadline') : null, m.deadline ? h('dd', null, `${Math.round(m.deadline / 60)} min — te laat kost een boete`) : null,
             h('dt', null, 'Wind'), h('dd', null, `${m.wind.base} m/s${m.wind.variable ? ' (wisselend)' : ''}`),
             h('dt', null, 'Tijdslimiet'), h('dd', null, m.timeLimit ? `${Math.round(m.timeLimit / 60)} min` : 'geen'),
             h('dt', null, 'Max. schade'), h('dd', null, `${m.maxDamage} %`),

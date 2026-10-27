@@ -1,3 +1,4 @@
+import type { ClientDef, SurpriseDef } from './story';
 import type { MatId } from '../../physics/stability/groundPressure';
 import type { LessonId } from '../../sim/lesson';
 import type { CraneId, LicenseId } from '../../cranes/config/types';
@@ -170,6 +171,10 @@ export interface MissionDef {
   zones: ZoneDef[];
   /** Geregisseerde les met een instructeur (alleen in de carrière). */
   lesson?: LessonId;
+  /** Opdrachtgever, zachte deadline (s, te laat = boete) en een verrassing onderweg (null = nooit). */
+  client?: ClientDef;
+  deadline?: number;
+  surprise?: SurpriseDef | null;
   /** Torenkraan staat er al; in de planning kan de speler kiezen voor zelf opbouwen (bonus-XP). */
   assemblyOptional?: boolean;
   /** Kraanmatten bij de start (standaard houten matten 1,2 m). */

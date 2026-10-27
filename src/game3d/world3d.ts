@@ -519,12 +519,13 @@ export class World3D {
       const done = !!task && task.status === 'done';
       // montagestappen: alleen de huidige stap tonen
       const stepOnly = task?.def.type === 'deliver' && !!task.def.inOrder;
-      this.zones[i].root.visible = !stepOnly || active;
+      const hidden = sim.hiddenZones.has(z.id);
+      this.zones[i].root.visible = !hidden && (!stepOnly || active);
       this.zones[i].setState(active, done, t);
       const lt = task && task.def.type === 'deliver' ? sim.loads.find((l) => l.id === (task.def as { loadId: string }).loadId)?.type : undefined;
       const v = new THREE.Vector3(z.x, z.y + (lt?.height ?? 1) + 1.2, z.z ?? 0).project(cam);
       const el = this.labels[i];
-      const visible = v.z < 1 && this.cfg.mode !== 'demo' && (!stepOnly || active);
+      const visible = !hidden && v.z < 1 && this.cfg.mode !== 'demo' && (!stepOnly || active);
       el.style.display = visible ? '' : 'none';
       if (visible) {
         el.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -100%)`;

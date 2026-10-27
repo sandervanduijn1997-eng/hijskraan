@@ -85,6 +85,7 @@ export type SimEvent =
   | { type: 'lmiCutoff' }
   | { type: 'slingBreak' }
   | { type: 'overPeople' }
+  | { type: 'surprise'; text: string }
   | { type: 'towerPart'; part: TowerPartKind }
   | { type: 'craneSwitch' }
   | { type: 'warning'; warning: Warning };
@@ -206,6 +207,12 @@ export class Simulation {
   padPressure: number[] = [];
   padAllowed: number[] = [];
   private sinkLatched = false;
+  /** Verrassing: afgegaan, extra wind tot een tijdstip, afzetplek pas vrij vanaf, en verborgen zones. */
+  private surpriseFired = false;
+  private gust: { speed: number; until: number } | null = null;
+  zoneReadyAt = 0;
+  readonly hiddenZones = new Set<string>();
+  private liftedSince = -1;
   outcome: MissionOutcome = 'running';
   failReason = '';
   score: ScoreBreakdown | null = null;
@@ -289,6 +296,8 @@ export class Simulation {
     }
 
     this.site = this.buildSite(opt.mission.site?.workers);
+    const sp = opt.mission.surprise;
+    if (sp?.type === 'change') this.hiddenZones.add(sp.toZone);
 
     const startAttached = opt.mission.loads.find((l) => l.attached);
     if (startAttached) {
@@ -655,6 +664,13 @@ export class Simulation {
 
     // wind
     this.wind = sampleWind(this.mission.wind, this.time, this.seed % 1000, this.difficulty.windScale);
+    if (this.gust && this.time < this.gust.until) {
+      // windvlaag: zwelt aan en neemt weer af, in de richting van de missiewind
+      const k = Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - (this.gust.until - this.time) / 18)));
+      const extra = Math.max(0, this.gust.speed - this.wind.speed) * k * this.difficulty.windScale;
+      const dir = this.mission.wind.direction >= 0 ? 1 : -1;
+      this.wind = { ...this.wind, x: this.wind.x + dir * extra, speed: this.wind.speed + extra };
+    }
     this.world.wind.x = this.wind.x;
     this.world.wind.z = this.wind.z;
 
@@ -718,6 +734,7 @@ export class Simulation {
 
     this.processImpacts(ctl);
     this.updateSite(dt);
+    this.updateSurprise();
     this.measure(dt);
     this.evaluateWarnings(ctl);
     for (const w of this.warnings.end(dt)) this.events.push({ type: 'warning', warning: w });
@@ -983,6 +1000,44 @@ export class Simulation {
     }
   }
 
+  /**
+   * Verrassing onderweg. Windvlaag: 8 s nadat de last vrij hangt. Afzetplek niet vrij: als de last
+   * binnen 8 m van de zone komt. Wijziging: bij het aanslaan krijgt de taak een nieuwe afzetplek.
+   */
+  private updateSurprise(): void {
+    const sp = this.mission.surprise;
+    if (!sp || this.surpriseFired || this.freePlay) return;
+    const l = this.attached;
+    const task = l ? this.tasks.find((t) => t.def.type === 'deliver' && t.def.loadId === l.id && t.status === 'active') : undefined;
+    if (!l || !task || task.def.type !== 'deliver') return;
+    const fire = () => {
+      this.surpriseFired = true;
+      this.events.push({ type: 'surprise', text: sp.text });
+    };
+    if (sp.type === 'change') {
+      if (task.def.zoneId !== sp.fromZone) return;
+      task.def = { ...task.def, zoneId: sp.toZone };
+      this.hiddenZones.delete(sp.toZone);
+      this.hiddenZones.add(sp.fromZone);
+      fire();
+      return;
+    }
+    const lifted = this.loadLifted();
+    if (lifted && this.liftedSince < 0) this.liftedSince = this.time;
+    if (sp.type === 'gust' && this.liftedSince >= 0 && this.time - this.liftedSince > 8) {
+      this.gust = { speed: sp.speed, until: this.time + sp.duration };
+      fire();
+    }
+    if (sp.type === 'delay' && lifted) {
+      const zone = this.mission.zones.find((z) => z.id === (task.def as { zoneId: string }).zoneId);
+      const bc = loadBottomCenter(l.cb.body);
+      if (zone && Math.hypot(bc.x - zone.x, bc.z - (zone.z ?? 0)) < 8) {
+        this.zoneReadyAt = this.time + sp.seconds;
+        fire();
+      }
+    }
+  }
+
   /** Belasting van het hijsgereedschap; boven de breukgrens breekt een strop en valt de last. */
   private checkSlings(): void {
     const l = this.attached;
@@ -1092,6 +1147,7 @@ export class Simulation {
       else if (worst > 0.85) W.raise('groundPressure', 'caution', `Bodemdruk stempel ${wi + 1} hoog: ${Math.round(worst * 100)} % van toegestaan`);
     }
     if (this.site?.peopleUnderLoad) W.raise('overPeople', 'critical', 'Last boven personen — stop!');
+    if (this.time < this.zoneReadyAt) W.raise('zoneHold', 'info', `Afzetplek nog niet vrij — wachten (nog ${Math.ceil(this.zoneReadyAt - this.time)} s)`);
     if (this.attached && this.rig?.choice) {
       const rig = this.rig;
       if (this.rigPct > 100) W.raise('slingOverload', 'critical', `Hijsgereedschap overbelast: ${Math.round(this.rigPct)} % van de werklast`);
@@ -1200,7 +1256,9 @@ export class Simulation {
           const pc = checkPlacement(l.cb.body, zone, supported && this.validSupport(l, zone));
           const slackEnough = l !== this.attached || this.tensionF < l.type.massKg * GRAVITY * 0.15;
           if (!slackEnough && pc.valid) pc.reasons.push('kabel nog belast — vier de kabel');
-          const valid = pc.valid && slackEnough;
+          const ready = this.time >= this.zoneReadyAt;
+          if (!ready && pc.valid) pc.reasons.push(`afzetplek nog niet vrij (nog ${Math.ceil(this.zoneReadyAt - this.time)} s)`);
+          const valid = pc.valid && slackEnough && ready;
           if (l === this.attached || this.placementHint === null) this.placementHint = { ...pc, valid };
           if (valid) {
             t.hold += dt;

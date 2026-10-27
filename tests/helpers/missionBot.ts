@@ -39,7 +39,7 @@ type Targets = Partial<Record<'boomAngle' | 'boomLength' | 'trolley' | 'knuckle'
 
 const FOLLOW = 0.5;
 
-class Bot {
+export class Bot {
   readonly sim: Simulation;
   phase = 'start';
   private kneeCache = new Map<string, Targets | null>();
@@ -380,7 +380,7 @@ class Bot {
   private *deliver(task: Extract<TaskDef, { type: 'deliver' }>): Generator<CraneInput> {
     const sim = this.sim;
     const load = sim.loads.find((l) => l.id === task.loadId)!;
-    const zone = sim.mission.zones.find((z) => z.id === task.zoneId)!;
+    let zone = sim.mission.zones.find((z) => z.id === task.zoneId)!;
     const idx = sim.tasks.findIndex((t) => t.def === task);
     const carry = sim.spec.gb.driveWithLoadMaxPct >= 100;
     const lt = load.type;
@@ -394,7 +394,7 @@ class Bot {
     const sp = sim.slingPoint(load);
     const aFrom = this.angleTo(sim.hookPoint());
     const aLoad = this.angleTo(sp);
-    const aZone = this.angleTo(zone);
+    let aZone = this.angleTo(zone);
     this.aim = aFrom;
     const hookAlong = this.along(sim.hookPoint());
     this.aim = aLoad;
@@ -428,6 +428,13 @@ class Bot {
     if (!sim.attached) {
       yield* this.giveUp('kon de last niet aanslaan');
       return;
+    }
+
+    // de opdrachtgever kan bij het aanslaan een andere afzetplek opgeven
+    const cur = sim.tasks[idx].def;
+    if (cur.type === 'deliver' && cur.zoneId !== zone.id) {
+      zone = sim.mission.zones.find((z) => z.id === cur.zoneId)!;
+      aZone = this.angleTo(zone);
     }
 
     // 4. heffen tot boven alle obstakels tussen hier en de zone
@@ -465,6 +472,11 @@ class Bot {
 
     // 5. naar de zone: bij de zone hoeft de tip alleen hoog genoeg te zijn voor de obstakels daar
     this.phase = 'naar de zone';
+    const cur2 = sim.tasks[idx].def;
+    if (cur2.type === 'deliver' && cur2.zoneId !== zone.id) {
+      zone = sim.mission.zones.find((z) => z.id === cur2.zoneId)!;
+      aZone = this.angleTo(zone);
+    }
     this.aim = aZone;
     let zx = this.along(zone);
     const nearTop = Math.max(zone.y, this.travelTop(zx, zx, lt.width / 2 + 0.1));
@@ -521,6 +533,12 @@ class Bot {
       // de laatste meters (en vlak boven obstakels bij de zone) pas zakken als de last stil hangt en uitgelijnd is
       const sideTop = Math.max(zone.y, this.travelTop(zx, zx, lt.width / 2 + 1.5));
       const aboveSide = bc.y - sideTop;
+      // afzetplek nog niet vrij: last vasthouden, ruim boven de plek en de obstakels ernaast
+      if (sim.time < sim.zoneReadyAt && !resting) {
+        i.hoist = this.servo('hoist', Math.max(1.5 - above, 1.2 - aboveSide), 0.5, 0.02);
+        yield i;
+        continue;
+      }
       const aligned = Math.abs(this.along(bc) - zx) < Math.min(zone.tolerance * 0.6, 0.25) && sim.swayDeg < 1.0;
       const resting0 = load.cb.supports.size > 0 || load.cb.body.sleeping;
       if (!resting0 && !aligned && (aboveSide < 1.2 || above < 1.2)) {
