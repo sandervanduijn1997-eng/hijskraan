@@ -1,0 +1,294 @@
+<title>Missiecatalogus Heavy Lift</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: één kolom; eerst lagen die alle missies realistischer maken, dan de catalogus per sector; per regel een keuze; onderaan een vaste balk met telling en kopieerknop. Zelfde huisstijl als het simulatorplan. */
+:root {
+  --bg: #f3f4f1;
+  --panel: #ffffff;
+  --ink: #1d2226;
+  --muted: #5b646b;
+  --line: #d9ddd8;
+  --accent: #e8b100;
+  --accent-ink: #1d2226;
+  --steel: #2f4b5c;
+  --sel: #fff4cc;
+  --crit: #c4402f;
+  --ok: #2f7d4f;
+  --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141a1e; --panel: #1c2429; --ink: #e6eaec; --muted: #9aa7ae; --line: #2e3a41;
+    --accent: #f2c230; --accent-ink: #141a1e; --steel: #8fb3c7; --sel: #3a3317; --crit: #ff7a66; --ok: #6fd49a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141a1e; --panel: #1c2429; --ink: #e6eaec; --muted: #9aa7ae; --line: #2e3a41;
+  --accent: #f2c230; --accent-ink: #141a1e; --steel: #8fb3c7; --sel: #3a3317; --crit: #ff7a66; --ok: #6fd49a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 28px 130px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.stripe { height: 10px; background: repeating-linear-gradient(-45deg, var(--accent) 0 14px, var(--ink) 14px 28px); border-radius: 3px; }
+header h1 { font-family: var(--display); font-weight: 700; font-size: clamp(2rem, 6vw, 3.2rem); letter-spacing: 0.01em; line-height: 1.05; margin: 18px 0 6px; text-wrap: balance; text-transform: uppercase; }
+header p { max-width: 68ch; color: var(--muted); margin: 6px 0; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); }
+h2 { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 1.55rem; margin: 34px 0 4px; text-wrap: balance; }
+.lead { max-width: 72ch; color: var(--muted); margin: 0 0 8px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.filters button, .opt { font: inherit; cursor: pointer; }
+.filters button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.filters button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.group { margin-top: 22px; }
+.group > h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: 0.04em; font-size: 1.3rem; margin: 0 0 4px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.group > h3 small { font-family: var(--body); text-transform: none; letter-spacing: 0; font-size: 0.85rem; color: var(--muted); font-weight: 400; }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin: 10px 0; display: grid; gap: 8px; }
+.item.chosen { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.item-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.code { font-family: var(--mono); font-size: 12px; color: var(--steel); }
+.item-head h4 { margin: 0; font-size: 1.05rem; font-weight: 600; text-wrap: balance; flex: 1 1 280px; min-width: 0; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; color: var(--muted); white-space: nowrap; }
+.tag.hot { color: var(--crit); border-color: var(--crit); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 18px; margin: 0; }
+.facts div { min-width: 0; }
+.facts dt { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--steel); }
+.facts dd { margin: 1px 0 0; font-size: 13.5px; }
+.why { margin: 0; max-width: 78ch; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.opt { text-align: left; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; display: grid; gap: 2px; min-width: 0; }
+.opt:hover { border-color: var(--steel); }
+.opt[aria-checked="true"] { background: var(--sel); border-color: var(--accent); }
+.opt .ol { font-weight: 600; font-size: 13.5px; }
+.opt .od { font-size: 12.5px; color: var(--muted); }
+.opt:focus-visible, .filters button:focus-visible, .bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink); color: var(--bg); padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); z-index: 20; }
+.bar .in { max-width: 1040px; margin: 0 auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.bar .count { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; flex: 1 1 260px; }
+.bar button { font: inherit; font-weight: 600; border: 0; border-radius: 5px; padding: 8px 14px; cursor: pointer; }
+.bar .primary { background: var(--accent); color: var(--accent-ink); }
+.bar .ghost { background: transparent; color: var(--bg); border: 1px solid currentColor; }
+#copyout { width: 100%; min-height: 140px; margin-top: 10px; font-family: var(--mono); font-size: 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 8px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="stripe" aria-hidden="true"></div>
+  <header>
+    <div class="eyebrow">Crane Operator: Heavy Lift · missies · oktober 2026</div>
+    <h1>Werk zoals een machinist het echt tegenkomt</h1>
+    <p>Twee delen. Eerst lagen die alle missies realistischer maken, zoals een echte werkdag, een vrachtbrief die niet klopt of een vergunning voor het spoor. Daarna een catalogus van nieuwe opdrachten die machinisten in Nederland en daarbuiten werkelijk uitvoeren, per sector.</p>
+    <p>Kies per regel wat je wilt. Je keuzes worden in deze browser bewaard. Klik onderaan op <b>Kopieer keuze</b> en plak de tekst in het gesprek.</p>
+  </header>
+
+  <h2>Deel 1 · Missies realistischer maken</h2>
+  <p class="lead">Deze lagen gelden voor alle missies, ook de 43 die er al zijn.</p>
+  <div id="layers"></div>
+
+  <h2>Deel 2 · Nieuwe missies</h2>
+  <p class="lead">Elke opdracht beschrijft wat er in het echt gebeurt, wat het lastig maakt en wat er onderweg kan misgaan. <span class="tag hot">populair</span> betekent een klus die bijna elke machinist kent.</p>
+  <div class="filters" id="filters" role="group" aria-label="Filter op sector"></div>
+  <div id="missions"></div>
+</div>
+
+<div class="bar" role="region" aria-label="Je keuze">
+  <div class="in">
+    <div class="count" id="count">0 gekozen</div>
+    <button class="ghost" id="reset" type="button">Alles wissen</button>
+    <button class="primary" id="copy" type="button">Kopieer keuze</button>
+  </div>
+  <div class="in"><textarea id="copyout" hidden readonly aria-label="Je keuze als tekst"></textarea></div>
+</div>
+
+<script>
+// ---------------- Deel 1: lagen voor alle missies (per laag een aanpak kiezen)
+const LAYERS = [
+  { id: 'R1', t: 'Een echte werkdag', why: 'Een machinist begint niet met hijsen. Hij komt aan, overlegt met de uitvoerder, bekijkt de opstelplaats, zet op, doet de dagelijkse controle en een toolboxmeeting, en sluit af met afbouwen en een werkbon.',
+    opts: [{ l: 'Volledige werkdag', d: 'Aankomst, rondgang, opbouwen, toolbox, werk, afbouwen en werkbon in elke missie.' }, { l: 'Alleen de start', d: 'Rondgang, controle van de begrenzer en een korte toolbox voor het werk begint.' }] },
+  { id: 'R2', t: 'Gewicht dat niet klopt', why: 'Vrachtbrieven zijn vaak fout of ontbreken. Een machinist schat, vraagt na en let bij het aanlichten op de lastmeter. Een last die zwaarder is dan opgegeven is een van de meest voorkomende oorzaken van ongevallen.',
+    opts: [{ l: 'Afwijkend gewicht', d: 'Soms wijkt het echte gewicht 10–40 % af; aanlichten en de lastmeter lezen is de enige manier om het te merken.' }, { l: 'Ook onbekend gewicht', d: 'Bij sloop, bomen en berging weet niemand het gewicht; je weegt met de kraan voordat je hijst.' }] },
+  { id: 'R3', t: 'Vergunningen en veiligheidsafstanden', why: 'Bij spoor, hoogspanning, gasleidingen of in een fabriek werk je met een werkvergunning, een vaste veiligheidsafstand en soms een begeleider. Overschrijden is direct stoppen.',
+    opts: [{ l: 'Volledig', d: 'Vergunning in de planning, zichtbare veiligheidszones in de wereld en een veiligheidskundige die meekijkt.' }, { l: 'Alleen zones', d: 'Verboden zones in de wereld (bijv. 5 m van een bovenleiding) die de giek niet in mag.' }] },
+  { id: 'R4', t: 'Mensen die iets van je willen', why: 'Op een echte bouwplaats roept iedereen tegelijk: de uitvoerder wil de vloer eerst, de staalvlechters wachten op wapening, de betoncentrale belt over de mixer. Kiezen wie er voorgaat hoort bij het vak.',
+    opts: [{ l: 'Kraanrooster met verzoeken', d: 'Ploegen vragen via de portofoon om de kraan; jij plant de volgorde, en wachttijd kost geld en humeur.' }, { l: 'Alleen opdrachtgever', d: 'Eén opdrachtgever met wijzigingen en wachttijden, zoals de huidige verrassingen.' }] },
+  { id: 'R5', t: 'Weerbericht en nee durven zeggen', why: 'Een goede machinist weigert een hijs als het te hard waait, ook als de klant aandringt. In de game wordt nu alleen gestraft wie het toch doet; je zou ook beloond moeten worden voor een terechte stop.',
+    opts: [{ l: 'Go/no-go-beslissing', d: 'Weerbericht in de planning, druk van de opdrachtgever, en een beloning (reputatie) voor een terechte weigering.' }, { l: 'Alleen het weerbericht', d: 'Een verwachting per uur in de planning, zonder druk.' }] },
+  { id: 'R6', t: 'Storingen en noodprocedures', why: 'Een motor die afslaat met de last in de lucht, een sensor die uitvalt, een hydraulische slang die lekt: machinisten oefenen de noodprocedures omdat het echt gebeurt.',
+    opts: [{ l: 'Storingen in missies', d: 'Zeldzame storingen met een echte noodprocedure (noodvieren, last veilig parkeren, melden).' }, { l: 'Alleen in examens', d: 'Storingen alleen in examenopdrachten en op verzoek.' }] },
+  { id: 'R7', t: 'Rijden naar de klus', why: 'Een mobiele kraan moet over de weg: asdruk, ontheffing, route om lage bruggen heen, en op de bouwplaats manoeuvreren tussen hekken en materiaal.',
+    opts: [{ l: 'Rijden over de weg', d: 'Korte rit door de wijk met smalle bochten, geparkeerde auto’s en een begeleider.' }, { l: 'Alleen op het terrein', d: 'Opstelplaats bereiken op de bouwplaats zelf, zoals nu bij de rough-terrain kraan.' }] },
+  { id: 'R8', t: 'Meer hijsgereedschap', why: 'Machinisten werken met meer dan stroppen: plaatklemmen voor kanaalplaten, vacuümheffers voor glas, kantbescherming, stuurlijnen, wegingsmeter. Het juiste gereedschap kiezen is een vaardigheid.',
+    opts: [{ l: 'Uitgebreide set', d: 'Plaatklem, vacuümheffer, steenvork, kubel, kantbescherming, stuurlijnen en lastmeter, elk met eigen regels.' }, { l: 'Alleen wat de missies vragen', d: 'Gereedschap alleen toevoegen bij de missies die het nodig hebben.' }] },
+  { id: 'R9', t: 'Steeds nieuw werk', why: 'Na de carrière moet er werk blijven: echte bedrijven draaien op honderden kleine klussen. Een generator die opdrachten samenstelt uit sector, locatie, last en weer houdt het spel levend.',
+    opts: [{ l: 'Opdrachtengenerator', d: 'Willekeurige maar geldige opdrachten op bestaande en nieuwe locaties, met klant, prijs en deadline.' }, { l: 'Alleen handgemaakt', d: 'Alleen ontworpen missies, zorgvuldig getest.' }] },
+];
+
+// ---------------- Deel 2: nieuwe missies per sector
+const SECTORS = [
+  { id: 'B', name: 'Woning- en utiliteitsbouw', sub: 'het dagelijkse werk van de meeste machinisten' },
+  { id: 'I', name: 'Infra en spoor', sub: 'werken in een strak tijdvenster tussen verkeer en treinen' },
+  { id: 'N', name: 'Industrie', sub: 'fabrieken, onderstations en stops in de procesindustrie' },
+  { id: 'H', name: 'Haven en water', sub: 'schepen, pontons en golfslag' },
+  { id: 'E', name: 'Energie', sub: 'windturbines en zonnevelden' },
+  { id: 'S', name: 'Bijzondere klussen', sub: 'de verhalen die machinisten in de kantine vertellen' },
+  { id: 'K', name: 'Keuring en examen', sub: 'wat je moet kunnen om je papieren te halen' },
+];
+
+const MISSIONS = [
+  // Bouw
+  { id: 'B1', s: 'B', hot: true, t: 'Kanaalplaatvloer leggen', crane: 'Torenkraan of AT 60', real: 'Kanaalplaten van 6–9 t worden met een plaatklem van de vrachtwagen op het metselwerk gelegd. De metselaar staat klaar met mortel, platen moeten strak tegen elkaar en mogen niet hard neerkomen.', hard: 'Plaatklem goed plaatsen, precies tegen de vorige plaat aan zakken, en werken op aanwijzing van de vloerlegger.', twist: 'De vrachtwagen is in de verkeerde volgorde geladen: de eerste plaat ligt onderop.' },
+  { id: 'B2', s: 'B', hot: true, t: 'Prefab wanden en schoren', crane: 'AT 60 of torenkraan', real: 'Betonwanden worden rechtop gezet en met schoren vastgezet voordat de kraan los mag. Pas als de monteur "los" zegt, mag je vieren.', hard: 'Een hoge, smalle last die wil draaien, en lang stil houden terwijl de schoren erin gaan.', twist: 'Wind steekt op terwijl de wand nog niet geschoord is.' },
+  { id: 'B3', s: 'B', hot: true, t: 'Betonstort met de kubel', crane: 'Torenkraan', real: 'Een betonmixer na de andere, de kubel vullen, naar de bekisting en leeg laten lopen. Beton wacht niet: een stort is een ritme van tientallen hijsen.', hard: 'Tempo houden zonder te slingeren boven mensen die met trilnaalden werken.', twist: 'De mixer is te vroeg; je moet kiezen tussen wachten en een andere ploeg laten wachten.' },
+  { id: 'B4', s: 'B', t: 'Dakelementen in een woonwijk', crane: 'AT 60 of truckkraan', real: 'Prefab dakelementen op rijtjeshuizen, vanaf een smalle straat met geparkeerde auto’s, bewoners die willen kijken en een afgezette stoep.', hard: 'Krappe opstelplaats, hoge straal en een lange, lichte last die veel wind vangt.', twist: 'Een bewoner wil met zijn auto de straat uit.' },
+  { id: 'B5', s: 'B', t: 'Glazen gevel met vacuümheffer', crane: 'Knikarmkraan of AT 60', real: 'Grote glasplaten worden met een vacuümheffer geplaatst. Bij te veel wind of verlies van vacuüm valt de plaat.', hard: 'Millimeterwerk tegen de gevel, op aanwijzing van de glaszetter, met een strenge windgrens.', twist: 'Het vacuüm-alarm gaat af halverwege de hijs.' },
+  { id: 'B6', s: 'B', t: 'Torenkraan stormklaar maken', crane: 'Torenkraan', real: 'Bij een stormwaarschuwing wordt de torenkraan in vaanstand gezet: haak omhoog, loopkat naar binnen, draaiwerk los zodat de giek met de wind meedraait.', hard: 'Op tijd stoppen, het werk afronden en de juiste volgorde aanhouden voordat de wind te hard wordt.', twist: 'De uitvoerder wil nog snel één last.' },
+  { id: 'B7', s: 'B', t: 'Twee torenkranen over elkaar', crane: 'Torenkraan', real: 'Op grote bouwplaatsen overlappen torenkranen elkaar. Een anti-collisiesysteem en afspraken houden de gieken en kabels uit elkaars buurt.', hard: 'Je eigen werk doen terwijl de andere kraan door jouw gebied draait.', twist: 'Het anti-collisiesysteem valt uit; je moet via de portofoon afstemmen.' },
+  { id: 'B8', s: 'B', t: 'Bekistingstafels verplaatsen', crane: 'Torenkraan', real: 'Tafelbekisting wordt na het storten onder de vloer uitgereden en met een tafelvork aan de gevelkant uitgehesen naar de volgende verdieping.', hard: 'Uithalen onder een vloer vandaan met een C-haak of tafelvork, waarbij het zwaartepunt verschuift.', twist: 'Een tafel zit vast aan het beton.' },
+
+  // Infra
+  { id: 'I1', s: 'I', hot: true, t: 'Brugligger tijdens een nachtelijke afsluiting', crane: 'Twee grote mobiele kranen', real: 'Bruggen over snelwegen en spoor worden ’s nachts geplaatst in een buitendienststelling van een paar uur. Wie te laat is, kost de opdrachtgever een fortuin.', hard: 'Tandemhijs, nachtwerk met werklampen, en een harde eindtijd waarop de weg weer open moet.', twist: 'De dieplader met de ligger staat een uur in de file.' },
+  { id: 'I2', s: 'I', t: 'Geluidsschermen langs de snelweg', crane: 'Truckkraan', real: 'Schermpanelen worden tussen staanders geplaatst vanaf een afgezette rijstrook, met verkeer op enkele meters.', hard: 'Panelen precies tussen de staanders laten zakken en nooit boven de open rijbaan zwenken.', twist: 'Een windstoot door langsrijdend vrachtverkeer.' },
+  { id: 'I3', s: 'I', t: 'Rioolbuizen in een sleuf', crane: 'Rough-terrain of rupskraan', real: 'Betonnen rioolbuizen worden in een sleuf met damwanden gelaten, waar mensen onderin de buizen aan elkaar koppelen.', hard: 'Blind hijsen in de sleuf op aanwijzing, met de rand van de sleuf als zwakke ondergrond.', twist: 'Grondwater komt op en de sleufrand wordt slapper.' },
+  { id: 'I4', s: 'I', t: 'Portaal voor de bovenleiding', crane: 'Spoorkraan of AT', real: 'Portalen voor de bovenleiding worden geplaatst in een spoorvrije periode, met een veiligheidsman en spanningsloze bovenleiding.', hard: 'Werken binnen het tijdvenster en veilig blijven van de spoorrails en naastgelegen spanning.', twist: 'Het naastgelegen spoor blijkt nog onder spanning.' },
+  { id: 'I5', s: 'I', t: 'Damwanden trillen', crane: 'Rupskraan', real: 'Met een trilblok aan de kraan worden damwandplanken de grond in getrild. De kraan houdt het trilblok en de plank vast.', hard: 'Een zware, trillende last precies verticaal houden en de kraan stabiel houden op slappe grond.', twist: 'Een plank loopt vast op een obstakel in de grond.' },
+
+  // Industrie
+  { id: 'N1', s: 'N', hot: true, t: 'Machineverhuizing door het dak', crane: 'AT 500 of rupskraan', real: 'Een productiemachine wordt via een dakopening uit een fabriek gehaald en een nieuwe erin gezet. Binnen staan monteurs met rolsets klaar.', hard: 'Een smalle opening, een onbekend zwaartepunt en een dak dat je niet mag raken.', twist: 'De machine blijkt zwaarder dan op de papieren staat.' },
+  { id: 'N2', s: 'N', t: 'Transformator in een onderstation', crane: 'AT 500', real: 'Een transformator wordt gewisseld tussen installaties die nog onder hoogspanning staan. Er geldt een vaste veiligheidsafstand voor giek, kabel en last.', hard: 'Hoogspanningszones in de wereld, een zware last en weinig ruimte.', twist: 'Een veld blijkt niet spanningsloos; de zone wordt groter.' },
+  { id: 'N3', s: 'N', t: 'Kolom rechtop zetten (tailing)', crane: 'Rupskraan en hulpkraan', real: 'Een liggende destillatiekolom wordt met twee kranen rechtop gezet: de hoofdkraan tilt de top, de hulpkraan houdt de voet en loopt mee.', hard: 'De last verandert van liggend naar staand; de belasting verschuift tijdens de hijs van de hulpkraan naar de hoofdkraan.', twist: 'Wind op het grote oppervlak tijdens het kantelen.' },
+  { id: 'N4', s: 'N', t: 'Stop in de raffinaderij', crane: 'AT 500 en truckkraan', real: 'Tijdens een onderhoudsstop worden warmtewisselaarbundels uitgetrokken en teruggezet. Alles gebeurt met werkvergunningen, gasmeters en een strakke planning.', hard: 'Meerdere klussen achter elkaar op één dag, met vergunningen per klus en weinig ruimte tussen leidingen.', twist: 'De gasmeter slaat aan; het werk ligt stil tot de ruimte vrij is.' },
+  { id: 'N5', s: 'N', t: 'Koelmachine op het dak in de binnenstad', crane: 'AT 500', real: 'Een koelunit op een kantoordak, ’s nachts of op zondag, met een afgesloten straat, omleiding en buurtbewoners.', hard: 'Grote straal over het gebouw heen, blind hijsen op aanwijzing van het dak, en de straat moet op tijd weer open.', twist: 'De dakconstructie blijkt minder te dragen; de unit moet op een andere plek.' },
+
+  // Haven
+  { id: 'H1', s: 'H', hot: true, t: 'Projectlading van een schip', crane: 'Rupskraan of havenkraan', real: 'Zware stukken (generatoren, jachten, modules) worden uit het ruim van een schip gehesen. Het schip ligt aan de kade en beweegt met het tij.', hard: 'Uit een ruim hijsen zonder de luikranden te raken, terwijl het schip zakt of stijgt.', twist: 'Het tij is sneller dan verwacht; de kade-hoogte verandert.' },
+  { id: 'H2', s: 'H', t: 'Hijsen vanaf een ponton', crane: 'Rupskraan op ponton', real: 'Een kraan op een ponton plaatst damwanden of brugdelen in het water. Het ponton beweegt met golven en kantelt als de last naar buiten gaat.', hard: 'Een bewegende ondergrond: de kraan zelf helt, en de last slingert met de golven mee.', twist: 'Een passerend schip geeft een golfslag.' },
+  { id: 'H3', s: 'H', t: 'Jacht in het water zetten', crane: 'AT 500', real: 'Een jacht van tientallen tonnen wordt met hijsbanden en een spreader van de trailer in het water gezet. Kwetsbaar, duur en met de eigenaar ernaast.', hard: 'Hijsbanden op de juiste plekken, zacht in het water, en geen schade aan romp of schroef.', twist: 'De eigenaar wil het zwaartepunt anders dan de werf zegt.' },
+
+  // Energie
+  { id: 'E1', s: 'E', hot: true, t: 'Windturbineblad monteren', crane: 'Rupskraan met lange giek', real: 'Een blad van 60+ m wordt horizontaal met een bladklem naar de naaf op 100 m hoogte gebracht. Stuurlijnen en een strenge windgrens bepalen alles.', hard: 'Een enorm, licht en windgevoelig deel precies op de bouten van de naaf brengen.', twist: 'De wind draait halverwege; het blad wil zich gaan richten.' },
+  { id: 'E2', s: 'E', t: 'Zonnepanelen op een groot dak', crane: 'Truckkraan of AT 60', real: 'Tientallen pallets zonnepanelen moeten verspreid over een plat dak, zonder de dakbelasting op één plek te overschrijden.', hard: 'Efficiënt plannen: veel hijsen, de juiste volgorde en de dakbelasting per vak.', twist: 'Een deel van het dak mag toch niet belast worden.' },
+  { id: 'E3', s: 'E', t: 'Gondel wisselen in een windpark', crane: 'Rupskraan', real: 'Bij een defecte turbine wordt de gondel naar beneden gehaald en een nieuwe geplaatst, in een open landschap met wind en zachte grond.', hard: 'Opbouw op een kraanopstelplaats van rijplaten, lange wachttijd op windstil weer en een zware hijs op grote hoogte.', twist: 'Het weervenster sluit eerder dan voorspeld.' },
+
+  // Bijzonder
+  { id: 'S1', s: 'S', hot: true, t: 'Zwembad over het huis heen', crane: 'AT 60 of AT 500', real: 'Een polyester zwembad of jacuzzi wordt vanaf de straat over het huis heen in de achtertuin gezet. Een klassieker: je ziet niets en werkt volledig op aanwijzing.', hard: 'Blind hijsen over een dak, op de portofoon van een signaalgever die je niet ziet.', twist: 'De signaalgever valt weg; je moet stoppen en wachten.' },
+  { id: 'S2', s: 'S', hot: true, t: 'Boom in delen weghalen', crane: 'AT 60 of knikarmkraan', real: 'Een boom die niet veilig kan vallen wordt in stukken weggehesen: een boomverzorger in de boom slaat aan en zaagt, jij houdt het stuk vast.', hard: 'Het gewicht van een stuk is onbekend; als het los komt schiet de last op en slingert hij.', twist: 'Een stuk is veel zwaarder dan geschat; de lastmeter schiet omhoog.' },
+  { id: 'S3', s: 'S', t: 'Berging na een ongeval', crane: 'AT 500 of bergingskraan', real: 'Een gekantelde vrachtwagen ligt in de berm. De politie wil de weg open, de lading is onbekend en de cabine mag niet verder beschadigen.', hard: 'Onbekend gewicht, vreemde aanslagpunten en tijdsdruk.', twist: 'De lading verschuift tijdens het rechtop trekken.' },
+  { id: 'S4', s: 'S', t: 'Sloop van een betonnen gebouw', crane: 'Rupskraan', real: 'Bij gecontroleerde sloop worden betondelen losgezaagd en weggehesen. Soms zit er nog wapening vast.', hard: 'Een last die nog vastzit: bij het losschieten krijgt de kraan een klap en schiet de last omhoog.', twist: 'De zaagsnede is niet af en het deel scheurt plots los.' },
+  { id: 'S5', s: 'S', t: 'Kerktoren of monument restaureren', crane: 'AT 500', real: 'Een torenspits of een kunstwerk wordt eraf gehaald voor restauratie en later teruggezet. Oud, kwetsbaar en met publiek en pers.', hard: 'Kwetsbare last, grote hoogte en een vaste, zeer kleine tolerantie bij terugplaatsen.', twist: 'De spits zit vaster dan verwacht aan de toren.' },
+  { id: 'S6', s: 'S', t: 'Mensen hijsen in een werkbak', crane: 'AT 60 of torenkraan', real: 'Personen hijsen in een werkbak mag alleen onder strenge regels: maximaal 50 % van het lastdiagram, rustig bewegen, en altijd contact.', hard: 'Een aparte bedieningsmodus met lagere snelheden en een last die je niet mag laten slingeren.', twist: 'De wind neemt toe terwijl er iemand hoog in de bak staat.' },
+
+  // Keuring en examen
+  { id: 'K1', s: 'K', hot: true, t: 'Praktijkexamen machinist', crane: 'AT 60 of torenkraan', real: 'Een praktijkexamen zoals bij TCVT: opstellen, begrenzer instellen, een parcours met een last en een examinator die op elke fout let.', hard: 'Alles volgens de regels, met een examinator die meekijkt en vragen stelt.', twist: 'De examinator schakelt een storing in.' },
+  { id: 'K2', s: 'K', t: 'Jaarlijkse keuring met proefgewichten', crane: 'Alle mobiele kranen', real: 'Bij de keuring hijst de machinist proefgewichten op vaste stralen om te bewijzen dat de begrenzer en de kraan kloppen.', hard: 'Precies op straal hijsen met gewichten tot boven de nominale last, binnen strenge marges.', twist: 'De begrenzer blijkt niet goed gekalibreerd; de keurmeester keurt hem af.' },
+];
+
+const KEY = 'missiecatalogus.keuze.v1';
+let choice = {};
+try { choice = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { choice = {}; }
+let filter = 'all';
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(choice)); } catch (e) { /* geen opslag beschikbaar */ } };
+
+const MISSION_OPTS = [
+  { v: 'career', l: 'In de carrière', d: 'Als vaste missie in een hoofdstuk, met verhaal en beloning.' },
+  { v: 'job', l: 'Losse opdracht', d: 'Als opdracht op het opdrachtenbord, los van de verhaallijn.' },
+  { v: 'skip', l: 'Overslaan', d: 'Deze opdracht niet maken.' },
+];
+
+const el = (tag, attrs, ...kids) => {
+  const n = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') n.className = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) n.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return n;
+};
+
+const optGroup = (id, label, opts) => el('div', { class: 'opts', role: 'radiogroup', 'aria-label': label },
+  opts.map((o) => el('button', {
+    type: 'button', role: 'radio', class: 'opt', 'aria-checked': String(choice[id] === o.v),
+    onclick: () => { if (choice[id] === o.v) delete choice[id]; else choice[id] = o.v; save(); render(); },
+  }, el('span', { class: 'ol' }, o.l), el('span', { class: 'od' }, o.d))));
+
+function renderLayers() {
+  document.getElementById('layers').replaceChildren(...LAYERS.map((it) => {
+    const opts = [...it.opts.map((o, i) => ({ ...o, v: String(i) })), { v: 'skip', l: 'Overslaan', d: 'Deze laag nu niet.' }];
+    const cur = choice[it.id];
+    return el('article', { class: 'item' + (cur && cur !== 'skip' ? ' chosen' : '') },
+      el('div', { class: 'item-head' }, el('span', { class: 'code' }, it.id), el('h4', null, it.t)),
+      el('p', { class: 'why' }, it.why),
+      optGroup(it.id, 'Aanpak voor ' + it.t, opts));
+  }));
+}
+
+function renderMissions() {
+  const f = document.getElementById('filters');
+  f.replaceChildren(
+    el('button', { type: 'button', 'aria-pressed': String(filter === 'all'), onclick: () => { filter = 'all'; render(); } }, 'Alles'),
+    el('button', { type: 'button', 'aria-pressed': String(filter === 'hot'), onclick: () => { filter = 'hot'; render(); } }, 'Alleen populair'),
+    ...SECTORS.map((s) => el('button', { type: 'button', 'aria-pressed': String(filter === s.id), onclick: () => { filter = s.id; render(); } }, s.name)),
+  );
+  document.getElementById('missions').replaceChildren(...SECTORS.filter((s) => filter === 'all' || filter === 'hot' || filter === s.id).map((s) => {
+    const list = MISSIONS.filter((m) => m.s === s.id && (filter !== 'hot' || m.hot));
+    if (!list.length) return null;
+    return el('section', { class: 'group' }, el('h3', null, s.name, el('small', null, s.sub)), list.map((m) => {
+      const cur = choice[m.id];
+      return el('article', { class: 'item' + (cur && cur !== 'skip' ? ' chosen' : '') },
+        el('div', { class: 'item-head' }, el('span', { class: 'code' }, m.id), el('h4', null, m.t),
+          el('div', { class: 'tags' }, m.hot ? el('span', { class: 'tag hot' }, 'populair') : null, el('span', { class: 'tag' }, m.crane))),
+        el('dl', { class: 'facts' },
+          el('div', null, el('dt', null, 'In het echt'), el('dd', null, m.real)),
+          el('div', null, el('dt', null, 'Wat het lastig maakt'), el('dd', null, m.hard)),
+          el('div', null, el('dt', null, 'Wat er mis kan gaan'), el('dd', null, m.twist))),
+        optGroup(m.id, 'Keuze voor ' + m.t, MISSION_OPTS));
+    }));
+  }).filter(Boolean));
+}
+
+function render() {
+  renderLayers();
+  renderMissions();
+  const layers = LAYERS.filter((l) => choice[l.id] && choice[l.id] !== 'skip').length;
+  const career = MISSIONS.filter((m) => choice[m.id] === 'career').length;
+  const jobs = MISSIONS.filter((m) => choice[m.id] === 'job').length;
+  document.getElementById('count').textContent = `${layers}/${LAYERS.length} lagen · ${career} carrièremissies · ${jobs} losse opdrachten · ${MISSIONS.length} missies in de catalogus`;
+}
+
+function selectionText() {
+  const lines = ['Mijn keuze uit de missiecatalogus:', '', 'Missies realistischer maken:'];
+  for (const l of LAYERS) {
+    const v = choice[l.id];
+    if (v === undefined) continue;
+    lines.push(v === 'skip' ? `- ${l.id} ${l.t}: overslaan` : `- ${l.id} ${l.t}: ${l.opts[Number(v)].l}`);
+  }
+  const label = { career: 'carrière', job: 'losse opdracht', skip: 'overslaan' };
+  for (const s of SECTORS) {
+    const ms = MISSIONS.filter((m) => m.s === s.id && choice[m.id] !== undefined);
+    if (!ms.length) continue;
+    lines.push('', s.name + ':');
+    for (const m of ms) lines.push(`- ${m.id} ${m.t}: ${label[choice[m.id]]}`);
+  }
+  const open = [...LAYERS, ...MISSIONS].filter((x) => choice[x.id] === undefined).map((x) => x.id);
+  if (open.length) lines.push('', 'Nog geen keuze: ' + open.join(', '));
+  return lines.join('\n');
+}
+
+document.getElementById('copy').addEventListener('click', () => {
+  const text = selectionText();
+  const out = document.getElementById('copyout');
+  out.value = text;
+  const btn = document.getElementById('copy');
+  const done = (msg) => { btn.textContent = msg; setTimeout(() => (btn.textContent = 'Kopieer keuze'), 2200); };
+  try {
+    navigator.clipboard.writeText(text).then(() => { out.hidden = true; done('Gekopieerd'); }, () => { out.hidden = false; out.select(); done('Selecteer en kopieer de tekst'); });
+  } catch (e) { out.hidden = false; out.select(); done('Selecteer en kopieer de tekst'); }
+});
+document.getElementById('reset').addEventListener('click', () => { choice = {}; save(); document.getElementById('copyout').hidden = true; render(); });
+
+render();
+</script>

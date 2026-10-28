@@ -1,0 +1,538 @@
+<title>Simulatorplan Heavy Lift</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: één kolom met een kop, een korte stand van zaken, filters per pijler en per aanbeveling een keuzeregel; onderaan een vaste balk met de telling en de kopieerknop. */
+:root {
+  --bg: #f3f4f1;
+  --panel: #ffffff;
+  --ink: #1d2226;
+  --muted: #5b646b;
+  --line: #d9ddd8;
+  --accent: #e8b100;      /* veiligheidsgeel */
+  --accent-ink: #1d2226;
+  --steel: #2f4b5c;
+  --sel: #fff4cc;
+  --crit: #c4402f;
+  --ok: #2f7d4f;
+  --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141a1e; --panel: #1c2429; --ink: #e6eaec; --muted: #9aa7ae; --line: #2e3a41;
+    --accent: #f2c230; --accent-ink: #141a1e; --steel: #8fb3c7; --sel: #3a3317; --crit: #ff7a66; --ok: #6fd49a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141a1e; --panel: #1c2429; --ink: #e6eaec; --muted: #9aa7ae; --line: #2e3a41;
+  --accent: #f2c230; --accent-ink: #141a1e; --steel: #8fb3c7; --sel: #3a3317; --crit: #ff7a66; --ok: #6fd49a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 28px 120px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.stripe { height: 10px; background: repeating-linear-gradient(-45deg, var(--accent) 0 14px, var(--ink) 14px 28px); border-radius: 3px; }
+header h1 { font-family: var(--display); font-weight: 700; font-size: clamp(2rem, 6vw, 3.2rem); letter-spacing: 0.01em; line-height: 1.05; margin: 18px 0 6px; text-wrap: balance; text-transform: uppercase; }
+header p { max-width: 68ch; color: var(--muted); margin: 6px 0; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); }
+h2 { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 1.55rem; margin: 34px 0 10px; text-wrap: balance; }
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
+.verdict div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+.verdict b { display: block; font-family: var(--display); font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.verdict .gap b { color: var(--crit); }
+.verdict .has b { color: var(--ok); }
+.verdict ul { margin: 6px 0 0; padding-left: 1.1em; }
+.verdict li { margin: 2px 0; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.filters button, .opt { font: inherit; cursor: pointer; }
+.filters button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.filters button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pillar { margin-top: 26px; }
+.pillar > h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: 0.04em; font-size: 1.3rem; margin: 0 0 4px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.pillar > h3 small { font-family: var(--body); text-transform: none; letter-spacing: 0; font-size: 0.85rem; color: var(--muted); font-weight: 400; }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin: 10px 0; display: grid; gap: 8px; }
+.item.chosen { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.item-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.code { font-family: var(--mono); font-size: 12px; color: var(--steel); }
+.item-head h4 { margin: 0; font-size: 1.05rem; font-weight: 600; text-wrap: balance; flex: 1 1 280px; min-width: 0; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; color: var(--muted); white-space: nowrap; }
+.tag.crit { color: var(--crit); border-color: var(--crit); }
+.why { margin: 0; max-width: 78ch; }
+.now { margin: 0; font-size: 13.5px; color: var(--muted); max-width: 78ch; }
+.now b { color: var(--ink); font-weight: 500; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.opt { text-align: left; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; display: grid; gap: 2px; min-width: 0; }
+.opt:hover { border-color: var(--steel); }
+.opt[aria-checked="true"] { background: var(--sel); border-color: var(--accent); }
+.opt .ol { font-weight: 600; font-size: 13.5px; }
+.opt .od { font-size: 12.5px; color: var(--muted); }
+.opt .oc { font-family: var(--mono); font-size: 11.5px; color: var(--steel); }
+.opt.skip { opacity: 0.85; }
+.opt:focus-visible, .filters button:focus-visible, .bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ok { font-size: 12.5px; color: var(--muted); margin: 0; }
+.ok b { color: var(--ok); font-weight: 600; }
+.bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink); color: var(--bg); padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); z-index: 20; }
+.bar .in { max-width: 1040px; margin: 0 auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.bar .count { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; flex: 1 1 260px; }
+.bar button { font: inherit; font-weight: 600; border: 0; border-radius: 5px; padding: 8px 14px; cursor: pointer; }
+.bar .primary { background: var(--accent); color: var(--accent-ink); }
+.bar .ghost { background: transparent; color: var(--bg); border: 1px solid currentColor; }
+#copyout { width: 100%; min-height: 140px; margin-top: 10px; font-family: var(--mono); font-size: 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 8px; }
+.legend { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="stripe" aria-hidden="true"></div>
+  <header>
+    <div class="eyebrow">Studio-review · Crane Operator: Heavy Lift · oktober 2026</div>
+    <h1>Van game naar volwaardige kraansimulator</h1>
+    <p>Een kritische blik zoals een studio met een budget van honderden miljoenen die naar dit project kijkt: wat moet er gebeuren om er een simulator van te maken die een echte machinist herkent, en die ook als opleidingsmiddel kan dienen. Realisme staat voorop.</p>
+    <p>Kies per aanbeveling hoe je het wilt aanpakken, of sla hem over. Je keuzes worden in deze browser bewaard. Klik onderaan op <b>Kopieer keuze</b> en plak de tekst in het gesprek.</p>
+  </header>
+
+  <h2>Waar de game nu staat</h2>
+  <div class="verdict">
+    <div class="has"><b>Sterk fundament</b>
+      <ul>
+        <li>Eigen 3D-fysica met slingerende last, kabel, contacten en giekdoorbuiging</li>
+        <li>Lastmomentbegrenzer, stabiliteit, bodemdruk, aanslaan en windstop als regels</li>
+        <li>Bouwplaats met mensen, signaalgever, tandemhijs, economie en herhaling</li>
+        <li>Testbot en ruim 200 automatische tests bewaken het gedrag</li>
+      </ul>
+    </div>
+    <div class="gap"><b>Wat een simulator nog mist</b>
+      <ul>
+        <li>Kranen zijn gebouwd uit vormen in de browser; geen gemodelleerde, gelicentieerde machines</li>
+        <li>Fysica is een spelbenadering: geen hydrauliek per cilinder, geen kabelparten, geen echte lastdiagrammen</li>
+        <li>Bediening via toetsenbord en gamepad; geen cabine, geen echte joysticks of beweging</li>
+        <li>Alleen ik heb het getest; nog geen machinist, examinator of fabrikant betrokken</li>
+      </ul>
+    </div>
+    <div><b>Grootste beslissing</b>
+      <ul>
+        <li>Blijft het een webgame, of gaat de simulatie naar een professionele engine? Bijna alles hieronder hangt daarvan af (zie T1).</li>
+        <li>Consument (Steam/console) of ook professionele opleiding (B2B)? Dat bepaalt hoe streng het realisme wordt gevalideerd.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Aanbevelingen</h2>
+  <div class="legend">
+    <span><b>Impact</b> = winst in realisme (1–5)</span>
+    <span><b>Omvang</b> = S tot XXL (XXL is een team voor een jaar of langer)</span>
+    <span><span class="tag crit">kern</span> = zonder dit wordt het geen simulator</span>
+  </div>
+  <div class="filters" id="filters" role="group" aria-label="Filter op pijler"></div>
+  <div id="list"></div>
+</div>
+
+<div class="bar" role="region" aria-label="Je keuze">
+  <div class="in">
+    <div class="count" id="count">0 gekozen</div>
+    <button class="ghost" id="reset" type="button">Alles wissen</button>
+    <button class="primary" id="copy" type="button">Kopieer keuze</button>
+  </div>
+  <div class="in"><textarea id="copyout" hidden readonly aria-label="Je keuze als tekst"></textarea></div>
+</div>
+
+<script>
+const PILLARS = [
+  { id: 'T', name: 'Technologie en engine', sub: 'de basis waarop alles draait' },
+  { id: 'F', name: 'Fysica en techniek', sub: 'de kern van het realisme' },
+  { id: 'M', name: 'Machines en bediening', sub: 'kranen die een machinist herkent' },
+  { id: 'W', name: 'Werkproces en vak', sub: 'hijsen zoals op een echte bouwplaats' },
+  { id: 'O', name: 'Wereld en omgeving', sub: 'een omgeving die er echt uitziet en zich echt gedraagt' },
+  { id: 'S', name: 'Samenwerken en opleiden', sub: 'multiplayer, instructeurs en certificering' },
+  { id: 'P', name: 'Productie, partners en markt', sub: 'wat een groot bedrijf eromheen bouwt' },
+];
+
+// Elke aanbeveling: wat het is, waarom, wat er nu is, en 2–3 aanpakken om uit te kiezen.
+const ITEMS = [
+  // ---------------- Technologie
+  { id: 'T1', p: 'T', crit: true, impact: 5, size: 'XXL', t: 'Engine voor een simulator',
+    why: 'Three.js in de browser is prima voor een prototype, maar een simulator met fotorealisme, cabinezicht in VR, meerdere schermen en zware fysica loopt hier tegen grenzen aan: geheugen, schaduwen, streaming van grote werelden en toegang tot hardware zoals joysticks en bewegingsplatforms.',
+    now: 'Web (Vite, TypeScript, Three.js), eigen fysica in TypeScript.',
+    ok: 'de simulatie draait stabiel op 60+ fps in VR en op drie schermen.',
+    opts: [
+      { l: 'Unreal Engine 5', d: 'Beste beeldkwaliteit (Nanite, Lumen), sterk voor VR en grote werelden. De eigen fysica wordt in C++ herschreven.', c: '±18–24 maanden, groot team' },
+      { l: 'Unity (HDRP)', d: 'Lagere instap, veel simulatorbedrijven werken ermee. Fysica in C#; goede VR- en hardwareondersteuning.', c: '±12–18 maanden' },
+      { l: 'Web houden, fysica naar Rust/WASM', d: 'Blijft speelbaar in de browser; de rekenintensieve kern wordt sneller en deelbaar met een latere native versie.', c: '±6–9 maanden' },
+    ] },
+  { id: 'T2', p: 'T', crit: true, impact: 5, size: 'XL', t: 'Eén simulatiekern, los van de weergave',
+    why: 'Een professionele simulator scheidt de rekenkern (kraan, kabel, last, grond) van beeld en geluid, zodat hij deterministisch blijft, gevalideerd kan worden tegen metingen en op een server kan draaien voor multiplayer en examens.',
+    now: 'Simulatie en weergave zijn al gescheiden (Simulation vs World3D) en deterministisch; dat is een goede basis.',
+    ok: 'dezelfde kern draait in de game, op de server en in de validatietests.',
+    opts: [
+      { l: 'Kern in C++', d: 'Snelste en past bij Unreal; ook te koppelen aan bewegingsplatforms.', c: '±9–12 maanden' },
+      { l: 'Kern in Rust', d: 'Veilig en snel; naar WASM (web) én native te compileren.', c: '±9–12 maanden' },
+      { l: 'Bestaande engine kopen', d: 'Een bewezen multibody-engine (bijv. een commerciële voertuig- en kabelengine) licentiëren in plaats van zelf bouwen.', c: 'licentiekosten, ±4–6 maanden integratie' },
+    ] },
+
+  // ---------------- Fysica
+  { id: 'F1', p: 'F', crit: true, impact: 5, size: 'XL', t: 'Hydrauliek per cilinder en ventiel',
+    why: 'Wat een machinist het eerst voelt, is hoe de kraan reageert: vertraging, load-sensing, het zakken van een koude giek, drukbegrenzing bij overbelasting. Nu is dat een algemeen model met één pompdebiet.',
+    now: 'Motortoerental, pompdebiet en verdeling over de bewegingen; geen druk per cilinder, geen ventielkarakteristiek.',
+    ok: 'een echte machinist herkent het gevoel van starten, afremmen en fijnregelen.',
+    opts: [
+      { l: 'Volledig hydraulisch netwerk', d: 'Pomp, load-sensing, proportionele ventielen, cilinders, leidingen, olietemperatuur en drukbeveiliging, per kraantype afgesteld.', c: '±8–12 maanden, specialist hydrauliek' },
+      { l: 'Ventielcurves uit metingen', d: 'Per kraan het verband tussen joystick en snelheid uit echte machines meten en terugspelen, met vertraging en drift.', c: '±4–6 maanden + meetdagen' },
+      { l: 'Overslaan', d: 'Het huidige model houden en alleen fijnafstellen.', c: '' },
+    ] },
+  { id: 'F2', p: 'F', crit: true, impact: 5, size: 'L', t: 'Kabel met parten, schijven en lier',
+    why: 'Echte hijskabels lopen over meerdere schijven met wrijving en rek per part, winden in lagen op de trommel (snelheid verandert per laag) en draaien op of af. Bij lange kabels en zware lasten bepaalt dat het gedrag.',
+    now: 'Eén kabel als lengtebeperking met rek en demping, parten alleen visueel; torsie als eenvoudige veer.',
+    ok: 'lastbeweging bij start en stop komt overeen met video’s van echte hijsen.',
+    opts: [
+      { l: 'Volledig kabelmodel', d: 'Kabel als keten van segmenten met massa, schijfwrijving, rek per part, trommellagen en draaistijfheid.', c: '±5–7 maanden' },
+      { l: 'Gereduceerd model', d: 'Parten en trommellagen als parameters in de bestaande kabel; geen segmenten.', c: '±2–3 maanden' },
+      { l: 'Overslaan', d: 'Huidige kabel houden.', c: '' },
+    ] },
+  { id: 'F3', p: 'F', crit: true, impact: 5, size: 'XL', t: 'Flexibele giek en vakwerk',
+    why: 'Een telescoopgiek heeft speling tussen de delen en buigt zijdelings en in torsie; een vakwerkgiek trilt als een staafconstructie. Dat bepaalt de nauwkeurigheid op grote lengte en het "naveren" na een stop.',
+    now: 'Doorbuiging in het verticale vlak als veer met demping; geen zijdelingse buiging, torsie of speling.',
+    ok: 'de giekpunt beweegt zoals op metingen van een echte kraan van hetzelfde type.',
+    opts: [
+      { l: 'Gereduceerd eindige-elementenmodel', d: 'Giek als balkelementen met stijfheid per sectie, speling tussen delen en eigenfrequenties.', c: '±6–9 maanden, constructeur' },
+      { l: 'Modale benadering', d: 'Eerste drie trillingsvormen per giekstand uit een rekenmodel, real-time gecombineerd.', c: '±3–4 maanden' },
+      { l: 'Overslaan', d: 'Huidige doorbuiging houden.', c: '' },
+    ] },
+  { id: 'F4', p: 'F', crit: true, impact: 4, size: 'L', t: 'Echte lastdiagrammen en stabiliteit',
+    why: 'Een simulator voor opleiding moet kloppen met de tabellen in de cabine. Nu zijn de lastdiagrammen spelwaarden uit een eigen stabiliteitsmodel.',
+    now: 'Fictieve kranen met afgeleide lastdiagrammen (75 % van de kantellast) en structurele grenzen.',
+    ok: 'per kraan wijkt het lastdiagram minder dan 1 % af van de fabrikant.',
+    opts: [
+      { l: 'Licentie bij fabrikanten', d: 'Officiële lastdiagrammen en maten van bijv. Liebherr, Tadano, Grove en Potain, met hun goedkeuring.', c: 'contract + ±3 maanden per kraan' },
+      { l: 'Uit openbare datasheets', d: 'Fictieve namen houden, maar de tabellen modelleren op gepubliceerde gegevens van vergelijkbare kranen.', c: '±2 maanden per kraan' },
+      { l: 'Spelwaarden houden', d: 'Duidelijk vermelden dat het geen echte waarden zijn.', c: '' },
+    ] },
+  { id: 'F5', p: 'F', crit: false, impact: 4, size: 'L', t: 'Wind volgens het hoogteprofiel en gebouwen',
+    why: 'Wind neemt toe met de hoogte, wervelt achter gebouwen en versnelt tussen torens. Voor hoge hijsen en grote panelen is dat het verschil tussen een rustige en een gevaarlijke hijs.',
+    now: 'Wind als vlagen in één richting met een windstop per last.',
+    ok: 'windkracht op de last verandert merkbaar met hoogte en positie tussen gebouwen.',
+    opts: [
+      { l: 'Vooraf berekend windveld', d: 'Per locatie een stromingsberekening (CFD) vooraf, real-time opgezocht en met turbulentie aangevuld.', c: '±4–6 maanden' },
+      { l: 'Hoogteprofiel en schaduw', d: 'Logaritmisch windprofiel plus eenvoudige luw- en versnellingszones rond gebouwen.', c: '±1–2 maanden' },
+      { l: 'Overslaan', d: 'Huidige wind houden.', c: '' },
+    ] },
+  { id: 'F6', p: 'F', crit: false, impact: 4, size: 'L', t: 'Grond, zetting en verborgen risico’s',
+    why: 'Echte ongevallen beginnen vaak onder de stempels: zetting die langzaam toeneemt, een kelder of leiding eronder, regen die de grond verzwakt. Een grondrapport hoort bij de planning.',
+    now: 'Bodemdruk per stempel, wegzakken boven de grens, regen verlaagt de draagkracht.',
+    ok: 'een speler die het grondrapport negeert, merkt dat aan zakkende stempels en een scheve kraan.',
+    opts: [
+      { l: 'Grondmodel met lagen', d: 'Grondlagen uit een (fictief) sonderingsrapport, zetting in de tijd, verborgen kelders en leidingen.', c: '±4–5 maanden, geotechnisch adviseur' },
+      { l: 'Grondrapport in de planning', d: 'Huidig model houden, maar per missie een rapport met draagkracht en risico’s tonen.', c: '±1 maand' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'F7', p: 'F', crit: false, impact: 3, size: 'M', t: 'Lasten die echt reageren',
+    why: 'Stroppen die over een scherpe rand slijten, een last die in de container verschuift, een kist die bij een harde landing vervormt: dat maakt aanslaan en neerzetten echt.',
+    now: 'Lasten zijn stijve blokken; schade is een getal en een donkerder kleur.',
+    ok: 'een strop zonder kantbescherming kan doorgesneden worden; inhoud kan verschuiven.',
+    opts: [
+      { l: 'Strop- en inhoudsfysica', d: 'Stroppen als kabels met contact op randen, kantbeschermers als gereedschap, verschuivende inhoud.', c: '±4–6 maanden' },
+      { l: 'Alleen kantbescherming', d: 'Regel en visualisatie: scherpe randen zonder bescherming verlagen de werklast.', c: '±3 weken' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'F8', p: 'F', crit: true, impact: 5, size: 'L', t: 'Validatie tegen echte metingen',
+    why: 'Realisme moet bewezen worden, niet aangenomen. Een simulatorbedrijf meet echte kranen (slingertijd, doorbuiging, reactietijd) en toetst de simulatie daaraan, telkens bij elke wijziging.',
+    now: 'Automatische tests op natuurkundige wetten en speelbaarheid; geen vergelijking met metingen.',
+    ok: 'een validatierapport per kraan met afwijkingen binnen afgesproken grenzen.',
+    opts: [
+      { l: 'Meetcampagne met partners', d: 'Sensoren op echte kranen bij verhuurders en fabrikanten; meetdata als referentie in de testpijplijn.', c: '±6 maanden + meetbudget' },
+      { l: 'Expertbeoordeling', d: 'Panels van ervaren machinisten en examinatoren beoordelen gedrag aan de hand van vaste scenario’s.', c: '±2 maanden, terugkerend' },
+      { l: 'Beide', d: 'Metingen voor de fysica, experts voor het gevoel en de procedures.', c: '' },
+    ] },
+
+  // ---------------- Machines
+  { id: 'M1', p: 'M', crit: true, impact: 5, size: 'XXL', t: 'Kranen op asset-niveau',
+    why: 'Een simulator staat of valt met de machine: elk onderdeel, elke sticker, de cabine van binnen. Nu zijn de kranen in code opgebouwd uit vormen; mooi voor een game, niet voor een simulator.',
+    now: 'Procedurele modellen met hero-details op de AT 60; de andere kranen eenvoudiger.',
+    ok: 'een machinist herkent de kraan aan details en een close-up is niet van een foto te onderscheiden.',
+    opts: [
+      { l: 'Gelicentieerde echte kranen', d: 'Samen met fabrikanten modelleren vanuit CAD-data, met echte merknamen.', c: '±3–4 maanden per kraan, team van 6' },
+      { l: 'Fictieve kranen op hoog niveau', d: 'Eigen ontwerpen gemodelleerd door 3D-artiesten, geïnspireerd op echte klassen.', c: '±2 maanden per kraan' },
+      { l: 'Procedureel verbeteren', d: 'Huidige aanpak doorzetten voor alle kranen (resterend punt uit fase 3).', c: '±1–2 maanden totaal' },
+    ] },
+  { id: 'M2', p: 'M', crit: true, impact: 5, size: 'XL', t: 'Echte cabine en besturingssystemen',
+    why: 'In een echte kraan werk je met het scherm van de fabrikant: menustructuren, opstartcontrole, foutcodes, het instellen van de begrenzer stap voor stap. Opleidingen toetsen precies dat.',
+    now: 'Eén algemeen cabinescherm (LMI, motor, hydrauliek) en een instelpaneel.',
+    ok: 'de cabineschermen werken zoals in de echte kraan, inclusief foutmeldingen.',
+    opts: [
+      { l: 'Per fabrikant nagebouwd', d: 'De echte bedieningssystemen per merk, met hun schermen en procedures (licentie nodig).', c: '±4 maanden per systeem' },
+      { l: 'Eén realistisch generiek systeem', d: 'Eigen cabinesoftware die alle gangbare functies en procedures dekt.', c: '±4–6 maanden' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'M3', p: 'M', crit: true, impact: 5, size: 'L', t: 'Echte bedieningshardware',
+    why: 'Met een toetsenbord leer je geen kraan bedienen. Professionele simulatoren gebruiken originele joysticks, een stoel, pedalen en vaak een bewegingsplatform.',
+    now: 'Toetsenbord, muis en gamepad met analoge invoer.',
+    ok: 'de game werkt met een kraanstoel met twee joysticks en meerdere schermen of VR.',
+    opts: [
+      { l: 'Professionele opstelling', d: 'Originele joysticks (CAN-bus), stoel, drie schermen of VR, bewegingsplatform; verkocht als set aan opleidingen.', c: '±6 maanden + hardwarepartner' },
+      { l: 'Consumentenhardware', d: 'Ondersteuning voor HOTAS-joysticks, simracing-stoelen, VR-headsets en trackers.', c: '±2–3 maanden' },
+      { l: 'Beide', d: 'Consumentenversie en een pro-set naast elkaar.', c: '' },
+    ] },
+  { id: 'M4', p: 'M', crit: false, impact: 4, size: 'L', t: 'Volledig op- en afbouwen',
+    why: 'Voor veel machinisten is opbouwen de helft van het werk: giekdelen pennen, ballast stapelen, hulpgiek, superlift. Nu gaat dat grotendeels met één knop.',
+    now: 'Stempels stap voor stap, torenkraanmontage met hulpkraan, vakwerk en zelfopbouw met één knop.',
+    ok: 'een vakwerkkraan kan van transport tot eerste hijs volledig worden opgebouwd.',
+    opts: [
+      { l: 'Volledig handmatig', d: 'Elke pen, elk ballastblok en elke kabel, met een hulpkraan en monteurs.', c: '±5–6 maanden' },
+      { l: 'Begeleide stappen', d: 'De belangrijke beslissingen zelf, het handwerk geanimeerd.', c: '±2–3 maanden' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'M5', p: 'M', crit: false, impact: 3, size: 'M', t: 'Keuring, onderhoud en storingen',
+    why: 'Echte kranen hebben een dagelijkse controle, een keuring, en soms storingen: een sensor die uitvalt, lekkage, een kalibratie die niet klopt. Daar leer je van wat je moet doen.',
+    now: 'Conditie als percentage en reparatiekosten.',
+    ok: 'de speler voert een rondgang uit en reageert correct op een storing.',
+    opts: [
+      { l: 'Rondgang en storingsscenario’s', d: 'Dagelijkse controle in 3D, plus storingen die de instructeur kan inschakelen.', c: '±3 maanden' },
+      { l: 'Alleen storingen', d: 'Willekeurige of geplande storingen tijdens de hijs.', c: '±6 weken' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'M6', p: 'M', crit: false, impact: 3, size: 'L', t: 'Meer machines rond de kraan',
+    why: 'Een bouwplaats heeft meer dan kranen: SPMT’s, verreikers, dieplader, betonpomp. Wie met een grote studio een "giga sim" wil, breidt daar vaak naar uit.',
+    now: 'Tien kraantypen, een vrachtwagen als decor.',
+    ok: 'transport en kraanwerk vormen één keten in een opdracht.',
+    opts: [
+      { l: 'Bestuurbare voertuigen', d: 'SPMT, dieplader en verreiker speelbaar, gekoppeld aan hijsopdrachten.', c: '±6–9 maanden' },
+      { l: 'Alleen als AI-verkeer', d: 'Voertuigen rijden en wachten, maar je bestuurt ze niet zelf.', c: '±2 maanden' },
+      { l: 'Overslaan', d: 'Focus op kranen houden.', c: '' },
+    ] },
+
+  // ---------------- Werkproces
+  { id: 'W1', p: 'W', crit: true, impact: 5, size: 'L', t: 'Hijsplan zoals in het echt',
+    why: 'Voor elke kritieke hijs maakt men een hijsplan: kraankeuze, opstelling, grondberekening, aanslagmiddelen, afzetting, weersgrenzen. In een simulator wil je dat zelf maken en laten toetsen.',
+    now: 'Planningsscherm met lastdiagram, standplaats, matten en offerte.',
+    ok: 'de speler maakt een hijsplan in 3D dat de simulatie daarna afdwingt.',
+    opts: [
+      { l: '3D-hijsplanner', d: 'Volwaardige planner met kraan plaatsen, hijsroute, grond, aanslag en een printbaar plan.', c: '±5–7 maanden' },
+      { l: 'Uitgebreid planningsscherm', d: 'Huidig scherm aanvullen met grondberekening, afzetting en weersgrenzen.', c: '±2 maanden' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'W2', p: 'W', crit: true, impact: 4, size: 'M', t: 'Signaalgevers en communicatie',
+    why: 'Bij een blinde hijs werk je volledig op aanwijzingen. Handsignalen volgen een norm, portofoonverkeer heeft een vast protocol, en er kunnen meerdere signaalgevers zijn.',
+    now: 'Eén AI-signaalgever met gesproken aanwijzingen en eenvoudige handgebaren.',
+    ok: 'alle handsignalen volgens de norm, blinde hijsen alleen op aanwijzing en camera.',
+    opts: [
+      { l: 'Normatief en blind hijsen', d: 'Volledige set handsignalen, portofoonprotocol, wissel van signaalgever, haakcamera.', c: '±3 maanden + stemacteurs' },
+      { l: 'Signaalgever als spelersrol', d: 'Een tweede speler is de signaalgever (zie S1).', c: 'zie S1' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'W3', p: 'W', crit: false, impact: 4, size: 'M', t: 'Ploeg op de bouwplaats',
+    why: 'Aanslagers slaan echt aan, monteurs bedienen stuurlijnen, een uitvoerder houdt de afzetting bij. Nu gebeurt aanslaan met één toets en lopen bouwvakkers vooral rond.',
+    now: 'Bouwvakkers die reageren op de last, een signaalgever, een collega-kraan.',
+    ok: 'aanslaan, stuurlijnen en afzetten gebeuren door zichtbare mensen met een eigen taak.',
+    opts: [
+      { l: 'AI-ploeg met taken', d: 'Aanslagers, stuurlijnbedieners en uitvoerder met animaties en fouten die je moet zien.', c: '±4–5 maanden' },
+      { l: 'Alleen animaties', d: 'Aanslaan en stuurlijnen zichtbaar gemaakt, zonder eigen beslissingen.', c: '±2 maanden' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'W4', p: 'W', crit: true, impact: 5, size: 'L', t: 'Regels en examens per land',
+    why: 'Wie opleidingen wil bedienen, moet de examens van elk land kunnen nabootsen: in Nederland TCVT, in Duitsland de DGUV-regels, in het VK CPCS, in de VS NCCCO en OSHA.',
+    now: 'Eigen licentiestructuur in de carrière; regels op één algemeen niveau.',
+    ok: 'een examinator erkent een oefenexamen als representatief.',
+    opts: [
+      { l: 'Samen met examinstellingen', d: 'Examens en regels per land samen opstellen en laten erkennen.', c: '±6 maanden per land' },
+      { l: 'Op basis van openbare eisen', d: 'Examenmodules nabouwen op gepubliceerde eisen, zonder officiële erkenning.', c: '±2 maanden per land' },
+      { l: 'Overslaan', d: 'Een consumentengame zonder opleidingsclaim.', c: '' },
+    ] },
+
+  // ---------------- Wereld
+  { id: 'O1', p: 'O', crit: true, impact: 4, size: 'XL', t: 'Fotorealistische werelden',
+    why: 'Dieptezicht en afstand inschatten gebeurt met echte texturen, licht en schaduw. Gescande materialen, echte bouwplaatsen en betrouwbare schaduwen helpen een machinist beter dan stilering.',
+    now: 'Gescande PBR-materialen, HDRI-luchten, procedurele steden en gebouwen.',
+    ok: 'stilstaande beelden zijn niet van een foto te onderscheiden.',
+    opts: [
+      { l: 'Gescande echte locaties', d: 'Haven, binnenstad en windpark gefotografeerd en gescand (fotogrammetrie).', c: '±6–9 maanden, scanteam' },
+      { l: 'Handgemaakte locaties', d: 'Artiesten bouwen de locaties met assetbibliotheken.', c: '±6 maanden' },
+      { l: 'Huidige stijl verbeteren', d: 'Procedureel blijven met betere materialen en licht.', c: '±2 maanden' },
+    ] },
+  { id: 'O2', p: 'O', crit: false, impact: 4, size: 'L', t: 'Weer en licht volumetrisch',
+    why: 'Regen op de cabineruit, mist die het zicht op de haak wegneemt, koplampen in de nacht: dat verandert hoe je werkt. Nu is het weer effectief maar vlak.',
+    now: 'Regenstrepen, nat terrein, windzak, werklampen en zichtbeperking.',
+    ok: 'zicht en licht in de cabine verschillen echt per weertype.',
+    opts: [
+      { l: 'Volumetrisch weer en cabine-effecten', d: 'Volumetrische mist en wolken, druppels en ruitenwissers, sneeuw en ijs.', c: '±3–4 maanden' },
+      { l: 'Alleen cabine-effecten', d: 'Druppels, beslagen ruiten en ruitenwissers in het cabinezicht.', c: '±1 maand' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'O3', p: 'O', crit: false, impact: 3, size: 'XL', t: 'Geluid uit echte opnames',
+    why: 'Machinisten werken op gehoor: de motor die zwaarder gaat lopen, de lier, het kraken van de giek. Echte opnames van dezelfde kraan maken het verschil.',
+    now: 'Vrije geluidsbibliotheek, ruimtelijk gemixt, met synthese als aanvulling.',
+    ok: 'een machinist hoort aan het geluid hoe zwaar de kraan belast is.',
+    opts: [
+      { l: 'Opnamesessies op echte kranen', d: 'Motor, hydrauliek, lier en cabine apart opgenomen per kraantype.', c: '±3 maanden + toegang tot kranen' },
+      { l: 'Bibliotheek en geluidsontwerp', d: 'Professionele bibliotheken en een geluidsontwerper.', c: '±2 maanden' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+
+  // ---------------- Samen en opleiden
+  { id: 'S1', p: 'S', crit: false, impact: 4, size: 'XL', t: 'Multiplayer: tandem en signaalgever',
+    why: 'Echte hijsen zijn teamwerk. Twee spelers in een tandemhijs, of een speler als signaalgever die de machinist aanstuurt, is realistischer dan een AI-collega.',
+    now: 'Tandemhijs met een AI-collega; geen multiplayer.',
+    ok: 'twee spelers voeren samen een tandemhijs uit zonder merkbare vertraging.',
+    opts: [
+      { l: 'Online met servers', d: 'Simulatie op een server, spelers wereldwijd, ook tussen pc en console.', c: '±9–12 maanden' },
+      { l: 'Lokaal netwerk', d: 'Voor opleidingscentra: meerdere stations in één ruimte.', c: '±4–6 maanden' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'S2', p: 'S', crit: true, impact: 4, size: 'L', t: 'Instructeursomgeving',
+    why: 'Opleidingscentra kopen een simulator om leerlingen te volgen: scenario’s starten, storingen en weer inschakelen, prestaties vergelijken en rapporteren.',
+    now: 'Herhaling met tijdlijn, nabespreking en anonieme speeltestgegevens.',
+    ok: 'een instructeur kan een les geven en een rapport per leerling exporteren.',
+    opts: [
+      { l: 'Volledig instructeurspakket', d: 'Live meekijken, storingen injecteren, beoordelingen en een leerlingvolgsysteem.', c: '±6 maanden' },
+      { l: 'Rapporten en scenario-editor', d: 'Scenario’s maken en rapporten exporteren, zonder live ingrijpen.', c: '±3 maanden' },
+      { l: 'Overslaan', d: 'Alleen consumentenversie.', c: '' },
+    ] },
+  { id: 'S3', p: 'S', crit: false, impact: 3, size: 'M', t: 'Scenario-editor en modding',
+    why: 'Grote simulatoren leven van een gemeenschap die eigen locaties, kranen en opdrachten maakt, en van opleidingen die hun eigen bouwplaatsen nabouwen.',
+    now: 'Missies als code in de repository.',
+    ok: 'een buitenstaander maakt zonder programmeren een eigen opdracht.',
+    opts: [
+      { l: 'Editor met workshop', d: 'Volledige editor en delen via Steam Workshop of een eigen platform.', c: '±5–6 maanden' },
+      { l: 'Alleen een missie-editor', d: 'Lasten, zones en obstakels plaatsen op bestaande locaties.', c: '±2 maanden' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+
+  // ---------------- Productie en markt
+  { id: 'P1', p: 'P', crit: true, impact: 5, size: 'L', t: 'Partners uit de branche',
+    why: 'Fabrikanten, verhuurbedrijven en examinstellingen leveren data, toegang tot machines, erkenning en klanten. Zonder hen blijft realisme een aanname.',
+    now: 'Geen partners; fictieve machines en spelwaarden.',
+    ok: 'minstens twee fabrikanten en een examinstelling werken mee.',
+    opts: [
+      { l: 'Breed partnerprogramma', d: 'Contracten met meerdere fabrikanten, verhuurders en examinstellingen.', c: 'business development, doorlopend' },
+      { l: 'Eén hoofdpartner', d: 'Eén fabrikant als exclusieve partner voor de eerste versie.', c: '±6 maanden onderhandelen' },
+      { l: 'Zelfstandig blijven', d: 'Fictief en zonder claim op officiële juistheid.', c: '' },
+    ] },
+  { id: 'P2', p: 'P', crit: true, impact: 3, size: 'M', t: 'Markt: consument, opleiding of beide',
+    why: 'Een consumentensim (Steam, console) vraagt plezier en toegankelijkheid; een opleidingssimulator vraagt erkenning, hardware en ondersteuning. De keuze bepaalt prioriteiten in bijna elk punt hierboven.',
+    now: 'Consumentengame in de browser, met een voorzichtige stap richting opleiding.',
+    ok: 'een productplan met doelgroep, prijs en kanalen.',
+    opts: [
+      { l: 'Beide, met één kern', d: 'Een consumentenversie en een pro-versie die dezelfde simulatiekern delen.', c: '' },
+      { l: 'Consument eerst', d: 'Steam en consoles, opleiding later.', c: '' },
+      { l: 'Opleiding eerst', d: 'B2B-simulator voor opleidingscentra, consumentenversie later.', c: '' },
+    ] },
+  { id: 'P3', p: 'P', crit: false, impact: 3, size: 'M', t: 'Kwaliteitsbewaking op schaal',
+    why: 'Bij een groot team en een complexe simulatie moet elke wijziging automatisch worden getoetst op fysica, prestaties en beeld. Dit is ook het openstaande punt uit fase 3.',
+    now: 'Ruim 200 automatische tests, een testbot over alle missies, end-to-end-tests.',
+    ok: 'geen wijziging komt erin zonder fysica-, prestatie- en beeldvergelijking.',
+    opts: [
+      { l: 'Volledige pijplijn', d: 'Prestatiemetingen, beeldvergelijking, foutrapportage uit de game en hardwarematrix.', c: '±3 maanden, QA-engineer' },
+      { l: 'Basis afronden', d: 'Prestatiemeting en beeldvergelijking toevoegen aan de huidige tests.', c: '±3–4 weken' },
+      { l: 'Overslaan', d: '', c: '' },
+    ] },
+  { id: 'P4', p: 'P', crit: false, impact: 2, size: 'L', t: 'Platforms en uitgave',
+    why: 'Pc via Steam is het startpunt van de meeste simulatoren; consoles vergroten het publiek maar vragen aanpassingen aan bediening en prestaties.',
+    now: 'Webversie; Steam stond gepland in fase 4.',
+    ok: 'uitgave op de gekozen platforms met goedgekeurde certificering.',
+    opts: [
+      { l: 'Pc, daarna consoles', d: 'Eerst Steam (Early Access mogelijk), daarna PlayStation en Xbox.', c: '' },
+      { l: 'Pc en consoles tegelijk', d: 'Gelijktijdige uitgave; meer werk vooraf.', c: '' },
+      { l: 'Alleen pc', d: 'Focus op pc, simhardware en VR.', c: '' },
+    ] },
+];
+
+const KEY = 'simulatorplan.keuze.v1';
+let choice = {};
+try { choice = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { choice = {}; }
+let filter = 'all';
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(choice)); } catch (e) { /* geen opslag: keuze blijft alleen in deze sessie */ } };
+
+const el = (tag, attrs, ...kids) => {
+  const n = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') n.className = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) n.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return n;
+};
+
+function renderFilters() {
+  const f = document.getElementById('filters');
+  f.replaceChildren(
+    el('button', { type: 'button', 'aria-pressed': String(filter === 'all'), onclick: () => { filter = 'all'; render(); } }, 'Alles'),
+    el('button', { type: 'button', 'aria-pressed': String(filter === 'crit'), onclick: () => { filter = 'crit'; render(); } }, 'Alleen kern'),
+    ...PILLARS.map((p) => el('button', { type: 'button', 'aria-pressed': String(filter === p.id), onclick: () => { filter = p.id; render(); } }, p.name)),
+  );
+}
+
+function renderItem(it) {
+  const cur = choice[it.id];
+  const opts = [...it.opts.filter((o) => o.l !== 'Overslaan'), { l: 'Overslaan', d: 'Dit punt nu niet doen.', c: '', skip: true }];
+  return el('article', { class: 'item' + (cur !== undefined && cur !== 'skip' ? ' chosen' : ''), id: it.id },
+    el('div', { class: 'item-head' },
+      el('span', { class: 'code' }, it.id),
+      el('h4', null, it.t),
+      el('div', { class: 'tags' },
+        it.crit ? el('span', { class: 'tag crit' }, 'kern') : null,
+        el('span', { class: 'tag' }, 'impact ' + it.impact + '/5'),
+        el('span', { class: 'tag' }, it.size),
+      ),
+    ),
+    el('p', { class: 'why' }, it.why),
+    el('p', { class: 'now' }, el('b', null, 'Nu: '), it.now),
+    el('div', { class: 'opts', role: 'radiogroup', 'aria-label': 'Aanpak voor ' + it.t },
+      opts.map((o, i) => {
+        const val = o.skip ? 'skip' : String(i);
+        return el('button', {
+          type: 'button', role: 'radio', class: 'opt' + (o.skip ? ' skip' : ''), 'aria-checked': String(cur === val),
+          onclick: () => { if (choice[it.id] === val) delete choice[it.id]; else choice[it.id] = val; save(); render(); },
+        }, el('span', { class: 'ol' }, o.l), o.d ? el('span', { class: 'od' }, o.d) : null, o.c ? el('span', { class: 'oc' }, o.c) : null);
+      }),
+    ),
+    el('p', { class: 'ok' }, el('b', null, 'Klaar als: '), it.ok),
+  );
+}
+
+function render() {
+  renderFilters();
+  const list = document.getElementById('list');
+  list.replaceChildren(...PILLARS.filter((p) => filter === 'all' || filter === 'crit' || filter === p.id).map((p) => {
+    const items = ITEMS.filter((i) => i.p === p.id && (filter !== 'crit' || i.crit));
+    if (!items.length) return null;
+    return el('section', { class: 'pillar' }, el('h3', null, p.name, el('small', null, p.sub)), items.map(renderItem));
+  }).filter(Boolean));
+  const chosen = ITEMS.filter((i) => choice[i.id] !== undefined && choice[i.id] !== 'skip').length;
+  const skipped = ITEMS.filter((i) => choice[i.id] === 'skip').length;
+  const open = ITEMS.length - chosen - skipped;
+  document.getElementById('count').textContent = `${chosen} gekozen · ${skipped} overgeslagen · ${open} nog open (van ${ITEMS.length})`;
+}
+
+function selectionText() {
+  const lines = ['Mijn keuze uit het simulatorplan:'];
+  for (const p of PILLARS) {
+    const its = ITEMS.filter((i) => i.p === p.id && choice[i.id] !== undefined);
+    if (!its.length) continue;
+    lines.push('', p.name + ':');
+    for (const i of its) {
+      const v = choice[i.id];
+      const opts = i.opts.filter((o) => o.l !== 'Overslaan');
+      lines.push(v === 'skip' ? `- ${i.id} ${i.t}: overslaan` : `- ${i.id} ${i.t}: ${opts[Number(v)].l}`);
+    }
+  }
+  const open = ITEMS.filter((i) => choice[i.id] === undefined);
+  if (open.length) lines.push('', 'Nog geen keuze: ' + open.map((i) => i.id).join(', '));
+  return lines.join('\n');
+}
+
+document.getElementById('copy').addEventListener('click', () => {
+  const text = selectionText();
+  const out = document.getElementById('copyout');
+  out.value = text;
+  const btn = document.getElementById('copy');
+  const done = (msg) => { btn.textContent = msg; setTimeout(() => (btn.textContent = 'Kopieer keuze'), 2200); };
+  try {
+    navigator.clipboard.writeText(text).then(() => { out.hidden = true; done('Gekopieerd'); }, () => { out.hidden = false; out.select(); done('Selecteer en kopieer de tekst'); });
+  } catch (e) { out.hidden = false; out.select(); done('Selecteer en kopieer de tekst'); }
+});
+document.getElementById('reset').addEventListener('click', () => { choice = {}; save(); document.getElementById('copyout').hidden = true; render(); });
+
+render();
+</script>
