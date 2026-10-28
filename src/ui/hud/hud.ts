@@ -242,7 +242,8 @@ export class Hud {
     setText(this.el.partner, pt ? (pt.attached ? `${Math.round(pt.loadPct)} % · ${pt.tensionT.toFixed(1)} t` : 'wacht op aanslaan') : '—');
     setClass(this.el.partner, pt && pt.loadPct > 100 ? 'v bad' : 'v');
     const aanslag = sim.attached ? sim.rig : null;
-    setText(this.el.rig, aanslag?.choice ? `${Math.round(sim.rigPct)} % · ${Math.round((aanslag.angle * 180) / Math.PI)}°` : sim.attached ? 'standaard' : '—');
+    const cell = sim.loadCellT;
+    setText(this.el.rig, aanslag?.choice ? `${Math.round(sim.rigPct)} % · ${Math.round((aanslag.angle * 180) / Math.PI)}°${cell !== null ? ` · ${cell.toFixed(2).replace('.', ',')} t` : ''}` : sim.attached ? 'standaard' : '—');
     setClass(this.el.rig, aanslag?.choice && sim.rigPct > 100 ? 'v bad' : 'v');
     const cw = sim.spec.counterweights[sim.crane.counterweightIndex];
     setText(this.el.cw, `${fmt((cw?.massT ?? 0) + sim.crane.extraCounterweightT, 1)} t`);

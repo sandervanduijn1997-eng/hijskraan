@@ -97,3 +97,25 @@ describe('aanslaan in de simulatie', () => {
     expect(tilts[1]).toBeLessThan(tilts[0] * 0.3);
   });
 });
+
+describe('uitgebreid hijsgereedschap', () => {
+  const slab: import('../../src/missions/data/loads').LoadType = { id: 'x', name: 'Kanaalplaat', massKg: 6000, width: 7.2, height: 0.26, depth: 1.2, dragCoeff: 1.2, fragility: 0.4, landingSpeedLimit: 0.3, slingHeight: 2, liftPoints: 'plaatklem', style: 'slab', color: 0x999999 };
+  const glass = { ...slab, name: 'Glasplaat', massKg: 900, style: 'glass' as const };
+  it('een kanaalplaat hoort in een plaatklem; een voorstel kiest die ook', async () => {
+    const { suggestRig, buildRig, rigProblems, CLAMPS } = await import('../../src/sim/rigging');
+    expect(suggestRig(slab).gear.kind).toBe('clamp');
+    expect(rigProblems(slab, buildRig(slab, { gear: CLAMPS[1], legs: 2, length: 2, points: 'cog' }))).toEqual([]);
+  });
+  it('glas alleen met een vacuümheffer', async () => {
+    const { buildRig, rigProblems, ROUND_SLINGS, VACUUMS } = await import('../../src/sim/rigging');
+    expect(rigProblems(glass, buildRig(glass, { gear: ROUND_SLINGS[2], legs: 2, length: 3, points: 'cog' })).some((p) => p.includes('vacuüm'))).toBe(true);
+    expect(rigProblems(glass, buildRig(glass, { gear: VACUUMS[1], legs: 2, length: 3, points: 'cog' }))).toEqual([]);
+  });
+  it('rondstroppen over scherpe randen zonder kantbescherming: werklast gehalveerd', async () => {
+    const { buildRig, ROUND_SLINGS } = await import('../../src/sim/rigging');
+    const beam = getLoad('steelBeam9');
+    const bare = buildRig(beam, { gear: ROUND_SLINGS[3], legs: 2, length: 6, points: 'cog' });
+    const prot = buildRig(beam, { gear: ROUND_SLINGS[3], legs: 2, length: 6, points: 'cog', edge: true });
+    expect(bare.wll).toBe(prot.wll / 2);
+  });
+});

@@ -23,7 +23,16 @@ export type LoadStyle =
   | 'towerMast'
   | 'towerSlewing'
   | 'towerHead'
-  | 'towerJib';
+  | 'towerJib'
+  | 'slab'
+  | 'glass'
+  | 'wall'
+  | 'tree'
+  | 'vehicle'
+  | 'basket'
+  | 'pool'
+  | 'blade'
+  | 'vessel';
 
 /** Lasttype. Afmetingen in m, massa in kg. Alle waarden zijn spelwaarden. */
 export interface LoadType {
@@ -43,6 +52,8 @@ export interface LoadType {
   landingSpeedLimit: number;
   /** Hoogte van het haakpunt boven de bovenkant van de last (stroppen/evenaar). */
   slingHeight: number;
+  /** Scherpe randen (standaard volgt uit de stijl; zie rigging.sharpEdges). */
+  sharpEdges?: boolean;
   /** Hijspunten (omschrijving voor de briefing). */
   liftPoints: string;
   style: LoadStyle;

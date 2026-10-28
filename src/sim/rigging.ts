@@ -8,7 +8,14 @@ import type { LoadType } from '../missions/data/loads';
  * en de regel dat een 4-sprong als een 3-sprong mag worden belast.
  */
 
-export type GearKind = 'round' | 'chain' | 'beam';
+/**
+ * Gereedschap: stroppen, kettingen en hijsbalk (meerdere sprongen), en hulpstukken met één ophangpunt:
+ * plaatklem (kanaalplaten), vacuümheffer (glas en panelen) en steenvork (pallets).
+ */
+export type GearKind = 'round' | 'chain' | 'beam' | 'clamp' | 'vacuum' | 'fork';
+/** Hulpstukken met één ophangpunt (geen sprongen of stroplengte). */
+export const DEVICES: GearKind[] = ['clamp', 'vacuum', 'fork'];
+export const isDevice = (k: GearKind): boolean => DEVICES.includes(k);
 export type PointMode = 'center' | 'cog';
 
 export interface GearOption {
@@ -52,6 +59,44 @@ export const BEAMS: GearOption[] = [
   { kind: 'beam', wll: 250, label: 'Hijsjuk 250 t', color: 0xf2b705 },
 ];
 
+/** Plaatklemmen voor kanaalplaten (werklast van de klem). */
+export const CLAMPS: GearOption[] = [
+  { kind: 'clamp', wll: 5, label: 'Plaatklem 5 t', color: 0xd02a1e },
+  { kind: 'clamp', wll: 8, label: 'Plaatklem 8 t', color: 0xd02a1e },
+  { kind: 'clamp', wll: 12, label: 'Plaatklem 12 t', color: 0xd02a1e },
+];
+
+/** Vacuümheffers voor glas en gladde panelen. */
+export const VACUUMS: GearOption[] = [
+  { kind: 'vacuum', wll: 0.6, label: 'Vacuümheffer 600 kg', color: 0x2b2f33 },
+  { kind: 'vacuum', wll: 1.2, label: 'Vacuümheffer 1,2 t', color: 0x2b2f33 },
+  { kind: 'vacuum', wll: 2, label: 'Vacuümheffer 2 t', color: 0x2b2f33 },
+];
+
+/** Steenvorken voor pallets. */
+export const FORKS: GearOption[] = [
+  { kind: 'fork', wll: 1.5, label: 'Steenvork 1,5 t', color: 0xf2b705 },
+  { kind: 'fork', wll: 3, label: 'Steenvork 3 t', color: 0xf2b705 },
+];
+
+/** Hoogte van het ophangpunt boven de last bij een hulpstuk (m). */
+const DEVICE_HEIGHT: Partial<Record<GearKind, number>> = { clamp: 1.6, vacuum: 1.1, fork: 2.4 };
+
+/** Past dit gereedschap bij deze last? */
+export function gearFits(t: LoadType, kind: GearKind): boolean {
+  if (t.style === 'glass') return kind === 'vacuum';
+  if (kind === 'clamp') return t.style === 'slab';
+  if (kind === 'vacuum') return t.style === 'panel';
+  if (kind === 'fork') return t.style === 'pallet' || t.style === 'bricks';
+  return true;
+}
+
+/** Last met scherpe randen: rondstroppen zonder kantbescherming worden doorgesneden. */
+export const sharpEdges = (t: LoadType): boolean => t.sharpEdges ?? ['beam', 'truss', 'slab', 'concrete'].includes(t.style);
+
+/** Windgrens van het gereedschap (m/s): een vacuümheffer verliest bij wind zijn grip. */
+export const gearWindLimit = (kind: GearKind | undefined): number => (kind === 'vacuum' ? 9 : Infinity);
+
 export const SLING_LENGTHS = [1.5, 2, 3, 4, 6, 8, 10, 12];
 
 export interface RigChoice {
@@ -59,6 +104,10 @@ export interface RigChoice {
   legs: 2 | 4;
   length: number;
   points: PointMode;
+  /** Kantbescherming onder de stroppen, stuurlijnen aan de last en een lastmeter in de haak. */
+  edge?: boolean;
+  taglines?: boolean;
+  loadCell?: boolean;
 }
 
 /** Uitgewerkte aanslag: hijspunten in het lichaamsframe en de geometrie. */
@@ -122,7 +171,22 @@ export function buildRig(t: LoadType, c: RigChoice): Rig {
   const spread = Math.max(...points.map((p) => Math.hypot(p.x - cx, p.z)));
   let height: number;
   let angle: number;
-  if (c.gear.kind === 'beam') {
+  if (isDevice(c.gear.kind)) {
+    // hulpstuk: één ophangpunt recht boven de last
+    const h = DEVICE_HEIGHT[c.gear.kind] ?? 1.5;
+    const cut = { x: cx, z: 0 };
+    return {
+      choice: c,
+      points: [cut],
+      apexX: cx,
+      height: h,
+      angle: 0,
+      bearingLegs: 1,
+      wll: c.gear.wll,
+      label: c.gear.label,
+      color: c.gear.color,
+    };
+  } else if (c.gear.kind === 'beam') {
     // balk boven de last, verticale sprongen: geen hoek; ophangpunt boven het midden van de balk
     height = c.length + BEAM_DROP;
     angle = 0;
@@ -137,7 +201,8 @@ export function buildRig(t: LoadType, c: RigChoice): Rig {
     height,
     angle,
     bearingLegs: c.gear.kind === 'beam' ? 1 : c.legs === 4 ? 3 : 2,
-    wll: c.gear.wll,
+    // rondstroppen over een scherpe rand zonder kantbescherming: werklast gehalveerd (snijgevaar)
+    wll: c.gear.kind === 'round' && sharpEdges(t) && !c.edge ? c.gear.wll / 2 : c.gear.wll,
     label: `${c.gear.label}${c.gear.kind === 'beam' ? '' : `, ${c.legs}-sprong`}, ${String(c.length).replace('.', ',')} m`,
     color: c.gear.color,
   };
@@ -145,7 +210,7 @@ export function buildRig(t: LoadType, c: RigChoice): Rig {
 
 /** Belasting per sprong (t) bij een kabelkracht (t): F = G / (n · cos α). Bij een balk: de hele last op de balk. */
 export function legLoadT(rig: Rig, loadT: number): number {
-  if (rig.choice?.gear.kind === 'beam') return loadT;
+  if (rig.choice && (rig.choice.gear.kind === 'beam' || isDevice(rig.choice.gear.kind))) return loadT;
   return loadT / (rig.bearingLegs * Math.max(0.05, Math.cos(rig.angle)));
 }
 
@@ -165,21 +230,24 @@ export function expectedTilt(t: LoadType, rig: Rig): number {
  * Breukgrens als veelvoud van de werklast (spelwaarde, ver onder de echte veiligheidsfactor 7 voor
  * rondstroppen en 4 voor kettingen, zodat overbelasting merkbaar gevolgen heeft).
  */
-export const BREAK_FACTOR: Record<GearKind, number> = { round: 1.6, chain: 2, beam: 1.8 };
+export const BREAK_FACTOR: Record<GearKind, number> = { round: 1.6, chain: 2, beam: 1.8, clamp: 2, vacuum: 1.4, fork: 2 };
 
 /** Opties die passen bij een last (geen overbodig lange stroppen of te kleine balken in de lijst). */
 export function gearFor(kind: GearKind): GearOption[] {
-  return kind === 'round' ? ROUND_SLINGS : kind === 'chain' ? CHAINS : BEAMS;
+  return { round: ROUND_SLINGS, chain: CHAINS, beam: BEAMS, clamp: CLAMPS, vacuum: VACUUMS, fork: FORKS }[kind];
 }
 
 /** Een goede keuze voor een last (voor de bot, tests en als voorstel): lichtste gereedschap dat past. */
 export function suggestRig(t: LoadType): RigChoice {
   const loadT = t.massKg / 1000;
   const legs: 2 | 4 = t.width / Math.max(0.1, t.depth) > 4 ? 2 : 4;
-  for (const kind of ['round', 'chain', 'beam'] as GearKind[]) {
+  // eerst het hulpstuk dat bij de last hoort (klem, vacuüm), anders stroppen, kettingen, balk
+  const base: GearKind[] = ['round', 'chain', 'beam'];
+  const kinds: GearKind[] = [...DEVICES.filter((k) => k !== 'fork' && gearFits(t, k)), ...base].filter((k) => gearFits(t, k));
+  for (const kind of kinds) {
     for (const gear of gearFor(kind)) {
       for (const length of SLING_LENGTHS) {
-        const c: RigChoice = { gear, legs, length, points: 'cog' };
+        const c: RigChoice = { gear, legs, length, points: 'cog', edge: sharpEdges(t) };
         const r = buildRig(t, c);
         if (r.angle <= (45 * Math.PI) / 180 && rigUtilisation(r, loadT) <= 0.9) return c;
       }
@@ -192,6 +260,9 @@ export function suggestRig(t: LoadType): RigChoice {
 export function rigProblems(t: LoadType, rig: Rig): string[] {
   const out: string[] = [];
   const loadT = t.massKg / 1000;
+  const k = rig.choice?.gear.kind;
+  if (k && !gearFits(t, k)) out.push(t.style === 'glass' ? 'glas alleen met een vacuümheffer' : 'dit gereedschap past niet bij deze last');
+  if (k === 'round' && sharpEdges(t) && !rig.choice?.edge) out.push('scherpe randen zonder kantbescherming: werklast gehalveerd, de strop kan doorsnijden');
   if (rig.angle > MAX_SLING_ANGLE) out.push(`stropshoek ${Math.round((rig.angle * 180) / Math.PI)}° — te plat, neem langere stroppen (max. 60°)`);
   const u = rigUtilisation(rig, loadT);
   if (u > 1) out.push(`gereedschap overbelast: ${legLoadT(rig, loadT).toFixed(1).replace('.', ',')} t per sprong bij ${String(rig.wll).replace('.', ',')} t werklast`);

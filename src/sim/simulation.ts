@@ -54,7 +54,8 @@ import { PartnerCrane, tandemPoint } from './tandem';
 import type { MarkerKind, Recording } from './recorder';
 import { Recorder, inputAt } from './recorder';
 import type { Danger } from './site';
-import { BREAK_FACTOR, MAX_SLING_ANGLE, buildRig, legLoadT, rigUtilisation, standardRig } from './rigging';
+import type { GearKind } from './rigging';
+import { BREAK_FACTOR, MAX_SLING_ANGLE, buildRig, gearWindLimit, legLoadT, rigUtilisation, standardRig } from './rigging';
 import type { Warning } from './warnings';
 import { WarningTracker } from './warnings';
 
@@ -297,6 +298,7 @@ export class Simulation {
     const params = defaultPhysicsParams();
     params.gravity = opt.gravity ?? GRAVITY;
     this.world = new PhysicsWorld(params);
+    this.baseYawDamping = params.yawDamping;
     this.applyCraneParams();
     this.missionColliders = buildColliders(opt.mission.obstacles);
     this.colliders = this.missionColliders;
@@ -771,6 +773,9 @@ export class Simulation {
       this.partner.update(dt, mine);
     }
 
+    // stuurlijnen: aanslagers houden de last tegen draaien (veel meer gierdemping)
+    this.world.params.yawDamping = this.attached && this.rig?.choice?.taglines ? 3 : this.baseYawDamping;
+
     // fysica
     this.world.step(dt, SUBSTEPS, this.rope, tipStart, lengthStart);
     this.partner?.measure();
@@ -1150,7 +1155,7 @@ export class Simulation {
    */
   private updateWindStop(dt: number): void {
     const kind = this.spec.cfg.kind;
-    this.windLimit = this.attached ? windLimitFor(this.attached.type, kind) : CRANE_WIND_LIMIT(kind);
+    this.windLimit = this.attached ? Math.min(windLimitFor(this.attached.type, kind), gearWindLimit(this.rig?.choice?.gear.kind)) : CRANE_WIND_LIMIT(kind);
     this.windStop = this.wind.speed > this.windLimit;
     const lifted = this.loadLifted();
     if (this.windStop && lifted) {
@@ -1214,13 +1219,26 @@ export class Simulation {
     const loadT = Math.max(0, this.tensionFast / GRAVITY - this.hookMassKg) / 1000;
     this.rigPct = rigUtilisation(rig, loadT) * 100;
     const kind = rig.choice?.gear.kind ?? 'round';
-    if (this.rigPct / 100 > BREAK_FACTOR[kind]) {
+    // vacuümheffer: bij te veel wind of een schok verliest hij zijn grip
+    const lifted = this.loadLifted();
+    if (kind === 'vacuum' && lifted && this.wind.speed > gearWindLimit('vacuum')) this.vacuumWindTime += FIXED_DT;
+    else this.vacuumWindTime = 0;
+    const vacuumLost = kind === 'vacuum' && this.vacuumWindTime > 1.5;
+    if (this.rigPct / 100 > BREAK_FACTOR[kind] || vacuumLost) {
       const leg = legLoadT(rig, loadT);
       this.detachLoad(false);
       l.damage = Math.max(l.damage, 0.5);
       this.events.push({ type: 'slingBreak' });
-      this.fail(`${kind === 'beam' ? 'De hijsbalk bezweek' : 'Een strop brak'}: ${leg.toFixed(1).replace('.', ',')} t op gereedschap met ${String(rig.wll).replace('.', ',')} t werklast.`);
+      const what: Record<GearKind, string> = { round: 'Een strop brak', chain: 'Een ketting brak', beam: 'De hijsbalk bezweek', clamp: 'De plaatklem schoot los', vacuum: 'Het vacuüm liet los', fork: 'De steenvork boog door' };
+      this.fail(vacuumLost ? `${what.vacuum}: te veel wind (${this.wind.speed.toFixed(1).replace('.', ',')} m/s) voor een vacuümheffer.` : `${what[kind]}: ${leg.toFixed(1).replace('.', ',')} t op gereedschap met ${String(rig.wll).replace('.', ',')} t werklast.`);
     }
+  }
+  private vacuumWindTime = 0;
+  private baseYawDamping = 0.35;
+  /** Gemeten last volgens de lastmeter in de haak (t), of null zonder lastmeter. */
+  get loadCellT(): number | null {
+    if (!this.attached || !this.rig?.choice?.loadCell) return null;
+    return Math.max(0, this.tensionF / GRAVITY - this.hookMassKg) / 1000;
   }
 
   private evaluateWarnings(ctl: ControlResult): void {

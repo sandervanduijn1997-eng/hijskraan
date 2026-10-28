@@ -23,7 +23,7 @@ import { MATS, matLabel } from '../physics/stability/groundPressure';
 import { GROUND_LABEL, groundAt } from '../physics/ground';
 import { ASSEMBLY_XP_BONUS, withOptionalAssembly } from '../missions/data/towerAssembly';
 import { Telemetry, summarize } from '../telemetry/telemetry';
-import { MAX_SLING_ANGLE, SLING_LENGTHS, buildRig, gearFor, legLoadT, rigProblems, suggestRig } from '../sim/rigging';
+import { MAX_SLING_ANGLE, SLING_LENGTHS, buildRig, gearFor, isDevice, legLoadT, rigProblems, suggestRig } from '../sim/rigging';
 import { resolveCrane } from '../cranes/models/craneSpec';
 import { createCraneState } from '../cranes/models/craneState';
 import { applyMissionResult, buyCrane, buyUpgrade, canBuyCrane, canBuyUpgrade, computePayout, formatMoney, isOwned, rentCost, repairCost, repairCrane } from '../economy/economy';
@@ -1434,9 +1434,20 @@ export class App {
       return s;
     };
     const line = (label: string, el: Element) => h('label', { class: 'line' }, label, el);
-    const kindSel = select<GearKind>('rig-kind', [['round', 'Rondstroppen'], ['chain', 'Kettingen'], ['beam', 'Hijsbalk / juk']], c.gear.kind, (k) => {
+    const kindSel = select<GearKind>('rig-kind', [['round', 'Rondstroppen'], ['chain', 'Kettingen'], ['beam', 'Hijsbalk / juk'], ['clamp', 'Plaatklem'], ['vacuum', 'Vacuümheffer'], ['fork', 'Steenvork']], c.gear.kind, (k) => {
       fillGear(k);
     });
+    // sprongen en stroplengte gelden niet voor een hulpstuk met één ophangpunt
+    const legsLine = h('div');
+    const lengthLine = h('div');
+    const check = (id: string, label: string, val: boolean, on: (v: boolean) => void) => {
+      const i = h('input', { type: 'checkbox', id, checked: val }) as HTMLInputElement;
+      i.addEventListener('change', () => {
+        on(i.checked);
+        preview();
+      });
+      return h('label', { class: 'line' }, label, i);
+    };
     gearSel.addEventListener('change', () => {
       c.gear = gearFor(c.gear.kind)[Number(gearSel.value)];
       preview();
@@ -1445,11 +1456,13 @@ export class App {
     const confirm = h('button', { class: 'btn primary', 'data-testid': 'rig-confirm' }, 'Aanslaan') as HTMLButtonElement;
     const preview = () => {
       c.gear = gearFor(kindSel.value as GearKind)[Number(gearSel.value)] ?? c.gear;
+      legsLine.hidden = isDevice(c.gear.kind);
+      lengthLine.hidden = isDevice(c.gear.kind);
       const rig = buildRig(t, c);
       const probs = rigProblems(t, rig);
       const deg = Math.round((rig.angle * 180) / Math.PI);
       out.replaceChildren(
-        h('div', null, `Last ${nl(loadT)} t · hoek ${deg}° · ${c.gear.kind === 'beam' ? 'balk' : 'per sprong'} ${nl(legLoadT(rig, loadT))} t van ${String(rig.wll).replace('.', ',')} t`),
+        h('div', null, `Last ${nl(loadT)} t · hoek ${deg}° · ${c.gear.kind === 'beam' || isDevice(c.gear.kind) ? 'gereedschap' : 'per sprong'} ${nl(legLoadT(rig, loadT))} t van ${String(rig.wll).replace('.', ',')} t`),
         ...probs.map((p) => h('div', { class: 'warn' }, '⚠ ' + p)),
       );
       out.classList.toggle('danger', probs.length > 0);
@@ -1476,8 +1489,11 @@ export class App {
         h('p', { class: 'muted' }, `${t.massKg.toLocaleString('nl-NL')} kg · ${t.width} × ${t.depth} × ${t.height} m · hijspunten: ${t.liftPoints}${t.comOffsetX ? ` · zwaartepunt ${Math.abs(t.comOffsetX * 100).toFixed(0)} cm uit het midden` : ''}`),
         line('Gereedschap', kindSel),
         line('Uitvoering', gearSel),
-        line('Sprongen', select<2 | 4>('rig-legs', [[2, '2-sprong'], [4, '4-sprong (draagt als 3)']], c.legs, (v) => (c.legs = v))),
-        line('Stroplengte', select<number>('rig-length', SLING_LENGTHS.map((l) => [l, `${String(l).replace('.', ',')} m`] as [number, string]), c.length, (v) => (c.length = v))),
+        (legsLine.append(line('Sprongen', select<2 | 4>('rig-legs', [[2, '2-sprong'], [4, '4-sprong (draagt als 3)']], c.legs, (v) => (c.legs = v)))), legsLine),
+        (lengthLine.append(line('Stroplengte', select<number>('rig-length', SLING_LENGTHS.map((l) => [l, `${String(l).replace('.', ',')} m`] as [number, string]), c.length, (v) => (c.length = v)))), lengthLine),
+        check('rig-edge', 'Kantbescherming onder de stroppen', !!c.edge, (v) => (c.edge = v)),
+        check('rig-tag', 'Stuurlijnen aan de last (aanslagers houden hem tegen draaien)', !!c.taglines, (v) => (c.taglines = v)),
+        check('rig-cell', 'Lastmeter in de haak', !!c.loadCell, (v) => (c.loadCell = v)),
         line('Hijspunten', select<PointMode>('rig-points', [['center', 'Midden van de last'], ['cog', 'Boven het zwaartepunt']], c.points, (v) => (c.points = v))),
         h('p', { class: 'muted small' }, `Vuistregel: stropshoek hoogstens ${Math.round((MAX_SLING_ANGLE * 180) / Math.PI)}°; hoe platter, hoe zwaarder elke sprong belast wordt (G / n·cos α).`),
         out,

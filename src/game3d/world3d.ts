@@ -27,6 +27,7 @@ import { buildWorker, poseSignal } from './people';
 import { SiteLife3D } from './siteLife3d';
 import { Weather3D } from './weather3d';
 import { tandemPoint } from '../sim/tandem';
+import { isDevice } from '../sim/rigging';
 import { localToWorld } from '../physics/load/rigidBody';
 import { placeCylinderBetween } from './kit';
 import { visibility } from '../sim/weather';
@@ -94,6 +95,7 @@ export class World3D {
   private slings: THREE.InstancedMesh;
   /** Hijsbalk (alleen bij een aanslag met balk). */
   private spreader: THREE.Mesh;
+  private taglines: THREE.LineSegments;
   private siteLife: SiteLife3D | null = null;
   private weather: Weather3D;
   /** Zicht (m): labels verder weg dan dit zijn bij mist, regen of nacht niet te lezen. */
@@ -205,6 +207,12 @@ export class World3D {
     this.spreader.castShadow = true;
     this.spreader.visible = false;
     this.scene.add(this.spreader);
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+    this.taglines = new THREE.LineSegments(tg, new THREE.LineBasicMaterial({ color: 0xff7a1a }));
+    this.taglines.frustumCulled = false;
+    this.taglines.visible = false;
+    this.scene.add(this.taglines);
     this.scene.add(this.fx.root);
 
     for (const z of m.zones) {
@@ -618,10 +626,35 @@ export class World3D {
         this.spreader.quaternion.copy(p.q);
         const bh = 0.18 + 0.05 * Math.cbrt(b.mass / 1000);
         this.spreader.scale.set(bl, bh, bh * 0.8);
+        (this.spreader.material as THREE.MeshStandardMaterial).color.setHex(0xf2b705);
+        this.spreader.visible = true;
+      } else if (rig?.choice && isDevice(rig.choice.gear.kind)) {
+        // hulpstuk (klem, vacuüm, vork) direct boven de last, één korte strop naar de haak
+        const kind = rig.choice.gear.kind;
+        const dh = kind === 'fork' ? 0.25 : 0.3;
+        const dTop = topY + (kind === 'fork' ? 0.3 : 0.15);
+        const center = toWorld(p, b.boxOffset.x + rig.apexX, dTop, 0);
+        seg(hp, center);
+        this.spreader.position.copy(center);
+        this.spreader.quaternion.copy(p.q);
+        const dw = kind === 'vacuum' ? Math.min(2.4, b.halfW * 1.6) : kind === 'clamp' ? 0.5 : Math.min(1.4, b.halfW * 2);
+        this.spreader.scale.set(dw, dh, kind === 'clamp' ? Math.min(1.6, b.depth) : Math.min(1.2, b.depth));
+        (this.spreader.material as THREE.MeshStandardMaterial).color.setHex(rig.choice.gear.color);
         this.spreader.visible = true;
       } else {
         for (const q of pts) seg(hp, toWorld(p, b.boxOffset.x + q.x, topY, q.z));
         this.spreader.visible = false;
+      }
+      // stuurlijnen: van beide uiteinden van de last schuin naar de grond (aanslagers houden ze vast)
+      this.taglines.visible = !!rig?.choice?.taglines;
+      if (this.taglines.visible) {
+        const pos = this.taglines.geometry.getAttribute('position') as THREE.BufferAttribute;
+        [-1, 1].forEach((sgn, i) => {
+          const end = toWorld(p, b.boxOffset.x + sgn * b.halfW * 0.9, b.boxOffset.y - b.halfH * 0.5, 0);
+          pos.setXYZ(i * 2, end.x, end.y, end.z);
+          pos.setXYZ(i * 2 + 1, end.x + sgn * 3.5, 0.9, end.z + 2);
+        });
+        pos.needsUpdate = true;
       }
       this.slings.count = k;
       this.slings.instanceMatrix.needsUpdate = true;
@@ -634,6 +667,7 @@ export class World3D {
       this.hook.quaternion.copy(p.q);
       this.slings.visible = false;
       this.spreader.visible = false;
+      this.taglines.visible = false;
     }
     // kabel: werkelijke lengte (doorhang als hij slap is) en zijdelingse snelheid van de last t.o.v. de giekpunt
     const rb = sim.ropeBody;
