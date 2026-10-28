@@ -20,6 +20,7 @@ export const DEPTH_BY_KIND: Record<ColliderKind, number> = {
   ship: 14,
   barrier: 4,
   crane: 2.6,
+  hazard: 6,
 };
 
 
@@ -48,6 +49,12 @@ export function obstacleToCollider(o: ObstacleDef): Collider {
   };
 }
 
+/** Fysieke botsingsobjecten (gevarenzones horen daar niet bij). */
 export function buildColliders(obstacles: readonly ObstacleDef[]): Collider[] {
-  return obstacles.map(obstacleToCollider);
+  return obstacles.filter((o) => o.kind !== 'hazard').map(obstacleToCollider);
+}
+
+/** Gevarenzones: de last, de haak, de kabel en de giekkop moeten erbuiten blijven. */
+export function buildHazards(obstacles: readonly ObstacleDef[]): Collider[] {
+  return obstacles.filter((o) => o.kind === 'hazard').map((o) => ({ ...obstacleToCollider(o), onHit: o.onHit ?? 'damage', landable: false }));
 }

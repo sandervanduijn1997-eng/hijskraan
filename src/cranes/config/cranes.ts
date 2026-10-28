@@ -69,7 +69,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 32000, rentPerMission: 1400, maintenancePerMission: 450, requiredLicense: 'zwaar' },
     upgrades: ['hoistSpeed', 'counterweightPlus', 'boomExtension', 'stabilityMonitor', 'efficientEngine', 'fastSetup', 'advancedWarnings', 'groundMats'],
-    suitableMissions: [18, 26, 27, 28, 29, 30, 31, 32, 38, 39, 40, 42],
+    suitableMissions: [18, 26, 27, 28, 29, 30, 31, 32, 38, 39, 40, 42, 52, 57, 58, 59, 60, 61, 64, 70, 72],
   },
 
   at60: {
@@ -130,7 +130,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 6500, rentPerMission: 180, maintenancePerMission: 60, requiredLicense: null },
     upgrades: ['hoistSpeed', 'precisionControls', 'counterweightPlus', 'boomExtension', 'stabilityMonitor', 'efficientEngine', 'fastSetup', 'advancedWarnings'],
-    suitableMissions: [1, 2, 3, 4, 5, 7, 8, 19, 41, 43],
+    suitableMissions: [1, 2, 3, 4, 5, 7, 8, 19, 41, 43, 45, 47, 48, 55, 66, 68, 69, 73],
   },
 
   rt80: {
@@ -191,7 +191,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 9500, rentPerMission: 260, maintenancePerMission: 90, requiredLicense: 'basis' },
     upgrades: ['hoistSpeed', 'precisionControls', 'counterweightPlus', 'stabilityMonitor', 'efficientEngine', 'fastSetup', 'groundMats'],
-    suitableMissions: [9, 21, 22, 25],
+    suitableMissions: [9, 21, 22, 25, 54],
   },
 
   truck25: {
@@ -251,7 +251,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 4500, rentPerMission: 150, maintenancePerMission: 45, requiredLicense: null },
     upgrades: ['hoistSpeed', 'precisionControls', 'counterweightPlus', 'efficientEngine', 'fastSetup', 'advancedWarnings'],
-    suitableMissions: [6, 19],
+    suitableMissions: [6, 19, 53],
   },
 
   lc300: {
@@ -313,7 +313,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 26000, rentPerMission: 900, maintenancePerMission: 320, requiredLicense: 'terrein' },
     upgrades: ['hoistSpeed', 'counterweightPlus', 'boomExtension', 'stabilityMonitor', 'efficientEngine', 'fastSetup', 'advancedWarnings'],
-    suitableMissions: [23, 24, 33, 40],
+    suitableMissions: [23, 24, 33, 40, 56, 62, 63, 71],
   },
 
   se32: {
@@ -435,7 +435,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 16000, rentPerMission: 420, maintenancePerMission: 130, requiredLicense: 'toren' },
     upgrades: ['hoistSpeed', 'precisionControls', 'trolleySpeed', 'slewSpeed', 'advancedWarnings', 'antiSwayAssist', 'efficientEngine', 'fastSetup'],
-    suitableMissions: [12, 13, 14, 15],
+    suitableMissions: [12, 13, 14, 15, 44, 46, 49, 50, 51],
   },
 
   hl600: {
@@ -500,7 +500,7 @@ export const CRANES: Record<CraneId, CraneConfig> = {
     },
     economy: { buyPrice: 48000, rentPerMission: 2400, maintenancePerMission: 700, requiredLicense: 'specialist' },
     upgrades: ['hoistSpeed', 'counterweightPlus', 'boomExtension', 'stabilityMonitor', 'efficientEngine', 'fastSetup', 'advancedWarnings'],
-    suitableMissions: [36, 37, 38, 39, 40],
+    suitableMissions: [36, 37, 38, 39, 40, 65, 67],
   },
 
   kb22: {

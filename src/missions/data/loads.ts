@@ -32,7 +32,8 @@ export type LoadStyle =
   | 'basket'
   | 'pool'
   | 'blade'
-  | 'vessel';
+  | 'vessel'
+  | 'spire';
 
 /** Lasttype. Afmetingen in m, massa in kg. Alle waarden zijn spelwaarden. */
 export interface LoadType {
@@ -108,6 +109,30 @@ export const LOADS: Record<string, LoadType> = {
   bridgeSpan: L({ id: 'bridgeSpan', name: 'Brugoverspanning', massKg: 165000, width: 30.0, height: 2.6, depth: 4.0, dragCoeff: 1.4, fragility: 0.45, landingSpeedLimit: 0.15, slingHeight: 10.0, liftPoints: '4 hijspunten + spreaderbalk', style: 'bridge', color: 0x7b7d7d }),
   criticalModule: L({ id: 'criticalModule', name: 'Uitzonderlijk zware module', massKg: 185000, width: 10.0, height: 6.0, depth: 6.0, dragCoeff: 1.3, fragility: 0.6, landingSpeedLimit: 0.15, slingHeight: 6.0, liftPoints: 'hijsbalk 4 punten', style: 'module', color: 0x5d6d7e }),
   offshoreModule: L({ id: 'offshoreModule', name: 'Offshore-energiemodule', massKg: 230000, width: 12.0, height: 8.0, depth: 8.0, comOffsetX: 0.3, dragCoeff: 1.4, fragility: 0.7, landingSpeedLimit: 0.12, slingHeight: 7.0, liftPoints: 'hijsframe 4 punten', style: 'module', color: 0xd35400 }),
+  // praktijkklussen (hoofdstuk 10–14)
+  hollowSlab: L({ id: 'hollowSlab', name: 'Kanaalplaat (7,2 m)', massKg: 6800, width: 7.2, height: 0.26, depth: 1.2, dragCoeff: 1.3, fragility: 0.45, landingSpeedLimit: 0.3, slingHeight: 2.2, liftPoints: 'plaatklem of 4 hijsankers', style: 'slab', color: 0xb4b0a6 }),
+  precastWall: L({ id: 'precastWall', name: 'Prefab betonwand', massKg: 7500, width: 3.6, height: 3.0, depth: 0.5, dragCoeff: 1.3, fragility: 0.45, landingSpeedLimit: 0.25, slingHeight: 2.0, liftPoints: '2 instorthulzen bovenzijde', style: 'wall', color: 0xa9a59c }),
+  roofElement: L({ id: 'roofElement', name: 'Prefab dakelement', massKg: 2600, width: 7.0, height: 0.35, depth: 2.4, dragCoeff: 1.7, fragility: 0.5, landingSpeedLimit: 0.3, slingHeight: 3.2, liftPoints: '4 hijslussen', style: 'slab', color: 0x8f3b2b, sharpEdges: false }),
+  glassPane: L({ id: 'glassPane', name: 'Glasplaat (3,0 × 2,2 m)', massKg: 950, width: 3.0, height: 2.2, depth: 0.3, dragCoeff: 1.4, fragility: 0.95, landingSpeedLimit: 0.15, slingHeight: 1.2, liftPoints: 'vacuümheffer (zuignappen)', style: 'glass', color: 0x9fc6d8 }),
+  tableForm: L({ id: 'tableForm', name: 'Bekistingstafel', massKg: 2200, width: 6.0, height: 0.9, depth: 2.4, dragCoeff: 1.4, fragility: 0.3, landingSpeedLimit: 0.4, slingHeight: 2.8, liftPoints: 'tafelvork / 4 hijsogen', style: 'slab', color: 0xd8a03a }),
+  noiseScreen: L({ id: 'noiseScreen', name: 'Geluidsschermpaneel', massKg: 1400, width: 4.6, height: 2.0, depth: 0.5, dragCoeff: 1.6, fragility: 0.4, landingSpeedLimit: 0.3, slingHeight: 1.6, liftPoints: '2 hijsogen', style: 'wall', color: 0x6d8a63 }),
+  sewerPipe: L({ id: 'sewerPipe', name: 'Betonnen rioolbuis Ø 1,25 m', massKg: 4200, width: 2.5, height: 1.5, depth: 1.5, dragCoeff: 1.0, fragility: 0.4, landingSpeedLimit: 0.25, slingHeight: 2.0, liftPoints: 'buizenklem of 2 stroppen', style: 'pipe', color: 0x9d9a92 }),
+  catenaryPortal: L({ id: 'catenaryPortal', name: 'Bovenleidingportaal', massKg: 2400, width: 11.0, height: 0.8, depth: 0.6, dragCoeff: 1.2, fragility: 0.35, landingSpeedLimit: 0.3, slingHeight: 3.0, liftPoints: '2 stroppen met kantbescherming', style: 'truss', color: 0x8d949b }),
+  sheetPile: L({ id: 'sheetPile', name: 'Damwandplank met trilblok', massKg: 5200, width: 0.8, height: 9.0, depth: 0.7, dragCoeff: 0.9, fragility: 0.1, landingSpeedLimit: 0.6, slingHeight: 1.2, liftPoints: 'klem van het trilblok', style: 'wall', color: 0x5a5148 }),
+  exchangerBundle: L({ id: 'exchangerBundle', name: 'Warmtewisselaarbundel', massKg: 14000, width: 7.0, height: 1.4, depth: 1.4, dragCoeff: 1.0, fragility: 0.5, landingSpeedLimit: 0.25, slingHeight: 2.8, liftPoints: '2 stroppen + spreader', style: 'pipe', color: 0x8e7b5f }),
+  pressMachine: L({ id: 'pressMachine', name: 'Excenterpers', massKg: 26000, width: 3.4, height: 2.6, depth: 2.2, comOffsetX: 0.3, dragCoeff: 1.1, fragility: 0.6, landingSpeedLimit: 0.2, slingHeight: 3.0, liftPoints: 'hijsframe met 4 punten', style: 'machine', color: 0x3d6f8f }),
+  coolingUnit: L({ id: 'coolingUnit', name: 'Koelmachine (dakmodel)', massKg: 9000, width: 4.6, height: 2.4, depth: 2.2, dragCoeff: 1.2, fragility: 0.75, landingSpeedLimit: 0.25, slingHeight: 3.0, liftPoints: 'hijsbalk met 4 ogen', style: 'hvac', color: 0xd9dee3 }),
+  distColumn: L({ id: 'distColumn', name: 'Destillatiekolom (20 m)', massKg: 26000, width: 20.0, height: 2.6, depth: 2.6, dragCoeff: 0.9, fragility: 0.6, landingSpeedLimit: 0.2, slingHeight: 3.0, liftPoints: 'hijsogen aan beide einden (tandem)', style: 'vessel', color: 0xc9cdd1 }),
+  yacht: L({ id: 'yacht', name: 'Motorjacht (14 m)', massKg: 24000, width: 14.0, height: 3.6, depth: 4.2, comOffsetX: 0.9, dragCoeff: 1.2, fragility: 0.85, landingSpeedLimit: 0.15, slingHeight: 4.5, liftPoints: '2 hijsbanden + spreader', style: 'vessel', color: 0xf3f4f5 }),
+  bladeL: L({ id: 'bladeL', name: 'Rotorblad (44 m)', massKg: 12000, width: 44.0, height: 2.8, depth: 3.2, dragCoeff: 1.6, fragility: 0.85, landingSpeedLimit: 0.15, slingHeight: 3.5, liftPoints: 'bladklem op het zwaartepunt + stuurlijnen', style: 'blade', color: 0xf4f6f7 }),
+  solarPallet: L({ id: 'solarPallet', name: 'Pallet zonnepanelen', massKg: 720, width: 1.2, height: 1.2, depth: 1.8, dragCoeff: 1.2, fragility: 0.6, landingSpeedLimit: 0.35, slingHeight: 1.6, liftPoints: 'palletvork of 4 stroppen', style: 'pallet', color: 0x1f3a5f }),
+  pool: L({ id: 'pool', name: 'Polyester zwembad', massKg: 2200, width: 7.0, height: 1.6, depth: 3.6, dragCoeff: 1.8, fragility: 0.7, landingSpeedLimit: 0.25, slingHeight: 3.6, liftPoints: '4 hijsbanden', style: 'pool', color: 0x5fb4d6 }),
+  treeCrown: L({ id: 'treeCrown', name: 'Boomkroon', massKg: 1100, width: 4.0, height: 3.0, depth: 4.0, dragCoeff: 1.9, fragility: 0.1, landingSpeedLimit: 0.8, slingHeight: 1.6, liftPoints: 'strop om de stam', style: 'tree', color: 0x4d7a35 }),
+  treeTrunk: L({ id: 'treeTrunk', name: 'Stamdeel', massKg: 1800, width: 1.0, height: 4.0, depth: 1.0, dragCoeff: 0.9, fragility: 0.05, landingSpeedLimit: 0.8, slingHeight: 1.0, liftPoints: 'strop om de stam', style: 'tree', color: 0x6b4f35 }),
+  wreck: L({ id: 'wreck', name: 'Gekantelde vrachtwagen', massKg: 15000, width: 9.0, height: 2.6, depth: 2.5, comOffsetX: 0.8, dragCoeff: 1.2, fragility: 0.5, landingSpeedLimit: 0.3, slingHeight: 4.0, liftPoints: 'hijsbanden om chassis en as', style: 'vehicle', color: 0xd9dde0 }),
+  demoSegment: L({ id: 'demoSegment', name: 'Losgezaagd betondeel', massKg: 9500, width: 4.0, height: 0.4, depth: 3.0, dragCoeff: 1.2, fragility: 0.05, landingSpeedLimit: 0.6, slingHeight: 2.4, liftPoints: 'kernboorgaten met stroppen', style: 'slab', color: 0x9e9a90 }),
+  spire: L({ id: 'spire', name: 'Torenspits', massKg: 5500, width: 2.4, height: 8.0, depth: 2.4, dragCoeff: 1.0, fragility: 0.9, landingSpeedLimit: 0.12, slingHeight: 1.2, liftPoints: 'hijsjuk om de spitsvoet', style: 'spire', color: 0x3f5a4b }),
+  manBasket: L({ id: 'manBasket', name: 'Werkbak met 2 personen', massKg: 600, width: 2.0, height: 1.2, depth: 1.2, dragCoeff: 1.3, fragility: 0.9, landingSpeedLimit: 0.2, slingHeight: 2.2, liftPoints: 'gekeurde 4-sprongs ketting', style: 'basket', color: 0xf0c419 }),
   // torenkraandelen voor de montage met een hulpkraan (maten passen bij de TC 160, zie towerErection.ts)
   towerMast: L({ id: 'towerMast', name: 'Mastsectie torenkraan', massKg: 3200, width: 1.6, height: 6.25, depth: 1.6, dragCoeff: 0.7, fragility: 0.3, landingSpeedLimit: 0.25, slingHeight: 1.6, liftPoints: '4 stroppen aan de bovenste hoekstijlen', style: 'towerMast', color: 0xf0c419 }),
   towerSlewing: L({ id: 'towerSlewing', name: 'Draaikrans met cabine', massKg: 9000, width: 2.4, height: 2.0, depth: 2.4, dragCoeff: 1.1, fragility: 0.5, landingSpeedLimit: 0.2, slingHeight: 2.4, liftPoints: '4 hijsogen', style: 'towerSlewing', color: 0xf0c419 }),

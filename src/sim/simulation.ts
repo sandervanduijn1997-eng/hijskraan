@@ -21,7 +21,8 @@ import type { CraneStartConfig } from '../cranes/models/craneState';
 import type { LoadType } from '../missions/data/loads';
 import { getLoad } from '../missions/data/loads';
 import type { MissionDef, PlaceEffect, TaskDef, TowerAssemblyDef, TowerPartKind, ZoneDef } from '../missions/data/types';
-import { buildColliders } from '../missions/runtime/buildWorld';
+import { buildColliders, buildHazards } from '../missions/runtime/buildWorld';
+import { OtherCrane } from './otherCrane';
 import type { ScoreBreakdown, ScoreMetrics } from '../missions/runtime/scoring';
 import { computeScore, emptyMetrics } from '../missions/runtime/scoring';
 import type { PlacementCheck } from '../missions/validation/placement';
@@ -67,6 +68,10 @@ export interface LoadRuntime {
   cb: ContactBody;
   status: LoadStatus;
   damage: number;
+  /** Werkelijke massa (kg); kan afwijken van de vrachtbrief (type.massKg). */
+  massKg: number;
+  /** Nog vastgezogen: extra trekkracht (kg) voordat de last loskomt. */
+  stuckKg: number;
 }
 
 export type TaskStatus = 'pending' | 'active' | 'done';
@@ -239,6 +244,26 @@ export class Simulation {
   /** Tandemhijs: de kraan van de collega (null = geen tandem). */
   partner: PartnerCrane | null = null;
   private partnerViolationLatched = false;
+  /** Gevarenzones (geen fysiek lichaam) en welke er nu geschonden wordt. */
+  readonly hazards: Collider[];
+  hazardHit: Collider | null = null;
+  private hazardLatched = new Set<string>();
+  /** Werkstop (gasalarm): tot wanneer, en vanaf wanneer bewegen een overtreding is. */
+  workStopUntil = 0;
+  private workStopGraceUntil = 0;
+  private workStopLatched = false;
+  private workStopEnded = true;
+  /** Opkomende storm: starttijd (−1 = nog niet). */
+  stormStart = -1;
+  /** Ponton: deining (m) en rolhoek (rad) van de kraan. */
+  craneHeave = 0;
+  craneRoll = 0;
+  private waveAnnounced = false;
+  /** Tweede torenkraan (AI) die over de bouwplaats draait. */
+  otherCrane: OtherCrane | null = null;
+  private otherCraneLatched = false;
+  private personnelLatched = false;
+  private trueWeightNoted = false;
   private windStopTime = 0;
   private windViolationLatched = false;
   /** Opname voor de herhaling en het aantal gezette stappen. */
@@ -301,6 +326,7 @@ export class Simulation {
     this.baseYawDamping = params.yawDamping;
     this.applyCraneParams();
     this.missionColliders = buildColliders(opt.mission.obstacles);
+    this.hazards = buildHazards(opt.mission.obstacles);
     this.colliders = this.missionColliders;
     this.refreshCraneColliders();
 
@@ -311,8 +337,9 @@ export class Simulation {
 
     for (const sp of opt.mission.loads) {
       const type = getLoad(sp.type);
+      const massKg = type.massKg * (sp.massFactor ?? 1);
       const body = createBoxBody({
-        mass: type.massKg,
+        mass: massKg,
         width: type.width,
         height: type.height,
         depth: type.depth,
@@ -325,10 +352,11 @@ export class Simulation {
         dragCoeff: type.dragCoeff,
       });
       const cb = this.world.addBody(sp.id, body);
-      this.loads.push({ id: sp.id, type, cb, status: 'resting', damage: 0 });
+      this.loads.push({ id: sp.id, type, cb, status: 'resting', damage: 0, massKg, stuckKg: (sp.stuckT ?? 0) * 1000 });
     }
 
     if (opt.mission.tandem) this.partner = new PartnerCrane(opt.mission.tandem);
+    if (opt.mission.otherCrane) this.otherCrane = new OtherCrane(opt.mission.otherCrane);
     this.site = this.buildSite(opt.mission.site?.workers);
     const sp = opt.mission.surprise;
     if (sp?.type === 'change') this.hiddenZones.add(sp.toZone);
@@ -608,7 +636,8 @@ export class Simulation {
     const b = l.cb.body;
     this.rig = rig;
     b.apex = { x: b.boxOffset.x + rig.apexX, y: b.boxOffset.y + b.halfH + rig.height + this.hookH };
-    setBodyMass(b, l.type.massKg + this.hookMassKg, { mass: this.hookMassKg, x: b.apex.x, y: b.apex.y });
+    // een vastgezogen last weegt aan de kabel zwaarder tot hij loskomt
+    setBodyMass(b, l.massKg + l.stuckKg + this.hookMassKg, { mass: this.hookMassKg, x: b.apex.x, y: b.apex.y });
     l.cb.extraPoints = [{ x: b.apex.x, y: b.apex.y - this.hookH }];
     b.frozen = false;
     wakeBody(b);
@@ -636,7 +665,7 @@ export class Simulation {
     const b = l.cb.body;
     const hookAt = apexWorld(b);
     b.apex = { x: b.boxOffset.x, y: b.boxOffset.y + b.halfH + l.type.slingHeight };
-    setBodyMass(b, l.type.massKg);
+    setBodyMass(b, l.massKg + l.stuckKg);
     this.rigPct = 0;
     if (this.partner?.rope) {
       const i = this.world.extraRopes.indexOf(this.partner.rope);
@@ -664,13 +693,20 @@ export class Simulation {
     }
     const c = this.attachCandidate();
     if (!c) return 'Geen last binnen bereik van de haak.';
-    if (c.status === 'placed') {
-      // geplaatste last mag opnieuw worden opgepakt; de taak gaat dan terug naar actief
-      for (const t of this.tasks) if (t.def.type === 'deliver' && t.def.loadId === c.id && t.status === 'done') t.status = 'pending';
-    }
+    if (c.status === 'placed') this.reopenTasks(c);
     if (this.manualRigging) return 'choose';
     this.attachLoad(c);
     return `${c.type.name} aangeslagen.`;
+  }
+
+  /**
+   * Een geplaatste last opnieuw oppakken: zijn taak gaat terug naar open. Staat er voor deze last nog
+   * een volgende taak open (eerst opzij leggen, kubel terug), dan hoort het oppakken bij het plan.
+   */
+  private reopenTasks(c: LoadRuntime): void {
+    const mine = this.tasks.filter((t) => t.def.type === 'deliver' && t.def.loadId === c.id);
+    if (mine.some((t) => t.status !== 'done')) return;
+    for (const t of mine) t.status = 'pending';
   }
 
   /** Aanslaan met een zelf gekozen aanslag (na het aanslagpaneel). */
@@ -679,7 +715,7 @@ export class Simulation {
     if (this.outcome !== 'running' || this.attached) return '';
     const c = this.attachCandidate();
     if (!c) return 'Geen last binnen bereik van de haak.';
-    if (c.status === 'placed') for (const t of this.tasks) if (t.def.type === 'deliver' && t.def.loadId === c.id && t.status === 'done') t.status = 'pending';
+    if (c.status === 'placed') this.reopenTasks(c);
     const rig = buildRig(c.type, choice);
     this.attachLoad(c, false, rig);
     if (rig.angle > MAX_SLING_ANGLE) this.metrics.safetyViolations++;
@@ -727,8 +763,19 @@ export class Simulation {
       const dir = this.mission.wind.direction >= 0 ? 1 : -1;
       this.wind = { ...this.wind, x: this.wind.x + dir * extra, speed: this.wind.speed + extra };
     }
+    this.applyWindRamp();
     this.world.wind.x = this.wind.x;
     this.world.wind.z = this.wind.z;
+    this.otherCrane?.update(this.time);
+    // werkstop: na de reactietijd is elke beweging behalve zakken een overtreding
+    if (this.time < this.workStopUntil) this.checkWorkStop(input);
+    else if (!this.workStopEnded) {
+      this.workStopEnded = true;
+      const sp = this.mission.surprise;
+      if (sp?.type === 'stop') this.events.push({ type: 'surprise', text: sp.endText });
+    }
+    // personen in de werkbak: halve snelheid voor alle bewegingen
+    if (this.mission.requirements.personnel && this.attached) input = halfSpeed(input);
 
     // kraanbesturing
     const tipStart = { ...this.geom.tip };
@@ -754,6 +801,7 @@ export class Simulation {
     this.refreshCraneColliders();
     this.updateBoomDeflection(dt);
     this.geom = computeGeometry(this.spec, this.crane);
+    this.applyCraneMotion();
     if (this.crane.setupProgress < 1 && hasSetupProcedure(this.spec)) {
       // tijdens montage/opbouw viert de lier automatisch mee met de beweging van de giekpunt:
       // de haak wordt niet over de grond meegesleept en blijft hangen waar hij hing
@@ -779,6 +827,7 @@ export class Simulation {
     // fysica
     this.world.step(dt, SUBSTEPS, this.rope, tipStart, lengthStart);
     this.partner?.measure();
+    this.releaseStuck();
 
     // meten: kabelkracht, belasting, stabiliteit
     const k = 1 - Math.exp(-dt / 0.25);
@@ -1002,7 +1051,7 @@ export class Simulation {
     const l = this.attached;
     // bij een tandemhijs draagt de collega een deel van het gewicht
     const share = this.partner?.attached ? (this.partner.rope?.tension ?? 0) : 0;
-    return !!l && l.cb.supports.size === 0 && this.tensionF + share > l.type.massKg * GRAVITY * 0.7;
+    return !!l && l.cb.supports.size === 0 && this.tensionF + share > l.massKg * GRAVITY * 0.7;
   }
 
   /** Is dit de last van de tandemhijs? */
@@ -1194,6 +1243,12 @@ export class Simulation {
     }
     const lifted = this.loadLifted();
     if (lifted && this.liftedSince < 0) this.liftedSince = this.time;
+    if (sp.type === 'stop' && this.liftedSince >= 0 && this.time - this.liftedSince > 6) {
+      this.workStopUntil = this.time + sp.seconds;
+      this.workStopGraceUntil = this.time + 4;
+      this.workStopEnded = false;
+      fire();
+    }
     if (sp.type === 'gust' && this.liftedSince >= 0 && this.time - this.liftedSince > 8) {
       this.gust = { speed: sp.speed, until: this.time + sp.duration };
       fire();
@@ -1206,6 +1261,112 @@ export class Simulation {
         fire();
       }
     }
+  }
+
+  /**
+   * Vastgezogen last (in de modder, vastgevroren, verlijmd): aan de kabel weegt hij zwaarder tot hij van
+   * de ondergrond loskomt. Dan valt die extra kracht in één keer weg en springt de last omhoog.
+   */
+  private releaseStuck(): void {
+    const l = this.attached;
+    if (!l || l.stuckKg <= 0) return;
+    const b = l.cb.body;
+    if (l.cb.supports.size > 0 || this.tensionF < (l.massKg + l.stuckKg) * GRAVITY * 0.95) return;
+    l.stuckKg = 0;
+    setBodyMass(b, l.massKg + this.hookMassKg, { mass: this.hookMassKg, x: b.apex.x, y: b.apex.y });
+    this.events.push({ type: 'surprise', text: 'Hij komt los! Let op de ruk — vang de slingering op.' });
+  }
+
+  /** Ponton: de hele kraan deint, rolt en helt over door het lastmoment; de giekkop beweegt mee. */
+  private applyCraneMotion(): void {
+    const cm = this.mission.craneMotion;
+    if (!cm) return;
+    const w = (2 * Math.PI) / cm.period;
+    let amp = 1;
+    if (cm.waveAt !== undefined && this.time > cm.waveAt && this.time < cm.waveAt + 14) {
+      if (!this.waveAnnounced) {
+        this.waveAnnounced = true;
+        this.events.push({ type: 'surprise', text: 'Daar komt de boeggolf van dat binnenvaartschip — vasthouden, niet zwenken!' });
+      }
+      amp = 1 + 2.2 * Math.sin((Math.PI * (this.time - cm.waveAt)) / 14);
+    }
+    const momentTm = this.attached ? (this.tensionF / GRAVITY / 1000) * this.geom.radius : 0;
+    const heel = clamp((cm.heelPer100Tm * momentTm) / 100, 0, 6) * DEG * Math.sign(Math.cos(this.crane.slew) || 1);
+    this.craneHeave = cm.heave * amp * Math.sin(w * this.time);
+    this.craneRoll = cm.roll * amp * DEG * Math.sin(w * this.time * 0.83 + 1.1) - heel;
+    const g = this.geom;
+    const px = this.crane.baseX;
+    const rx = g.tip.x - px;
+    const c = Math.cos(this.craneRoll);
+    const sn = Math.sin(this.craneRoll);
+    g.tip = { x: px + rx * c - g.tip.y * sn, y: rx * sn + g.tip.y * c + this.craneHeave, z: g.tip.z };
+  }
+
+  /** Opkomende storm: wind loopt op naar de stormwaarde. */
+  private applyWindRamp(): void {
+    const r = this.mission.windRamp;
+    if (!r) return;
+    if (this.stormStart < 0) {
+      const placed = this.loads.filter((l) => l.status === 'placed' || l.status === 'consumed').length;
+      if ((r.at !== undefined && this.time >= r.at) || (r.afterPlaced !== undefined && placed >= r.afterPlaced)) {
+        this.stormStart = this.time;
+        this.events.push({ type: 'surprise', text: r.text });
+      } else return;
+    }
+    const k = Math.min(1, (this.time - this.stormStart) / r.over);
+    const extra = Math.max(0, r.to - this.mission.wind.base) * k * this.difficulty.windScale;
+    const dir = this.mission.wind.direction >= 0 ? 1 : -1;
+    this.wind = { ...this.wind, x: this.wind.x + dir * extra, speed: this.wind.speed + extra };
+  }
+
+  /** Werkstop: binnen de reactietijd alles stil; daarna telt elke beweging (behalve zakken) als overtreding. */
+  private checkWorkStop(input: CraneInput): void {
+    if (this.time < this.workStopGraceUntil || this.workStopLatched) return;
+    const moving = Math.abs(input.slew) + Math.abs(input.luff) + Math.abs(input.tele) + Math.abs(input.trolley) + Math.abs(input.drive) + Math.abs(input.knuckle) + Math.max(0, input.hoist) > 0.05;
+    if (!moving) return;
+    this.workStopLatched = true;
+    this.metrics.safetyViolations++;
+    if (this.difficulty.strictOutriggers) this.fail('Doorgewerkt tijdens een werkstop.');
+  }
+
+  /** Gevarenzones: last, haak, kabel of giekkop erin is een overtreding (per keer binnengaan). */
+  private checkHazards(): Collider | null {
+    if (!this.hazards.length) return null;
+    const tip = this.geom.tip;
+    const ap = this.ropeAttachPoint();
+    const bb = this.attached ? bodyBounds(this.attached.cb.body) : null;
+    const inside = (c: Collider, x: number, y: number, z: number) => x > c.minX && x < c.maxX && y > c.minY && y < c.maxY && z > c.minZ && z < c.maxZ;
+    for (const c of this.hazards) {
+      let hit = inside(c, tip.x, tip.y, tip.z) || inside(c, ap.x, ap.y, ap.z);
+      if (!hit && bb) hit = bb.maxX > c.minX && bb.minX < c.maxX && bb.maxY > c.minY && bb.minY < c.maxY && bb.maxZ > c.minZ && bb.minZ < c.maxZ;
+      if (!hit && rangesOverlap(Math.min(tip.z, ap.z), Math.max(tip.z, ap.z), c.minZ, c.maxZ)) hit = segmentIntersectsRect(tip.x, tip.y, ap.x, ap.y, c, 0);
+      if (!hit) {
+        // de giek zelf: punten van de giekvoet naar de kop, in de draairichting
+        const g = this.geom;
+        const foot = g.segments.find((sg) => sg.kind !== 'mast' && sg.kind !== 'column') ?? g.segments[0];
+        const ux = tip.x - g.slewX;
+        const uz = tip.z - g.slewZ;
+        const ul = Math.hypot(ux, uz) || 1;
+        if (foot) {
+          const fx = g.slewX + (ux / ul) * foot.u0;
+          const fz = g.slewZ + (uz / ul) * foot.u0;
+          for (let i = 1; i < 10 && !hit; i++) {
+            const k = i / 10;
+            hit = inside(c, fx + (tip.x - fx) * k, foot.y0 + (tip.y - foot.y0) * k, fz + (tip.z - fz) * k);
+          }
+        }
+      }
+      if (hit) {
+        if (!this.hazardLatched.has(c.id)) {
+          this.hazardLatched.add(c.id);
+          this.metrics.safetyViolations++;
+          if (c.onHit === 'fail' && this.difficulty.strictOutriggers) this.fail(`In de gevarenzone gekomen: ${c.label ?? 'gevarenzone'}.`);
+        }
+        return c;
+      }
+      this.hazardLatched.delete(c.id);
+    }
+    return null;
   }
 
   /** Belasting van het hijsgereedschap; boven de breukgrens breekt een strop en valt de last. */
@@ -1260,7 +1421,7 @@ export class Simulation {
       if (this.difficulty.strictOutriggers) this.fail('Gehesen zonder volledig uitgezette stempels.');
     }
     if (this.attached && !lifted && this.capacityT > 0) {
-      const need = (this.attached.type.massKg + this.hookMassKg) / 1000;
+      const need = (this.attached.massKg + this.hookMassKg) / 1000;
       if (need > this.capacityT) W.raise('unsafeRadius', 'caution', `Onveilige werkstraal: hier max. ${this.capacityT.toFixed(1)} t toegestaan`);
     }
     if (this.rope.stretch > 0.25) W.raise('snag', 'critical', 'Last zit vast — kabel staat onder overspanning');
@@ -1344,6 +1505,38 @@ export class Simulation {
     }
     if (this.windStop) W.raise('windStop', this.attached ? 'critical' : 'caution', `Windstop: ${this.wind.speed.toFixed(1)} m/s boven de limiet van ${this.windLimit} m/s${this.attached ? ' voor deze last — zet hem neer of wacht' : ''}`);
     if (this.stopped) W.raise('inspection', 'critical', `Werk stilgelegd — inspecteur onderweg (nog ${Math.ceil(this.inspection!.until - this.time)} s)`);
+    this.hazardHit = this.checkHazards();
+    if (this.hazardHit) W.raise('hazard', 'critical', `In de gevarenzone: ${this.hazardHit.label ?? 'gevarenzone'} — direct terug!`);
+    if (this.time < this.workStopUntil) W.raise('workStop', 'critical', `Werkstop — alles stil, alleen zakken (nog ${Math.ceil(this.workStopUntil - this.time)} s)`);
+    if (this.attached && this.attached.stuckKg > 0 && !lifted && this.tensionF > this.attached.massKg * GRAVITY * 0.9) W.raise('stuck', 'caution', `Last zit vast — trekt ${(this.tensionF / GRAVITY / 1000).toFixed(1)} t; recht boven de last hijsen, rustig opbouwen`);
+    if (this.attached && lifted && this.attached.massKg > this.attached.type.massKg * 1.08) {
+      W.raise('trueWeight', 'caution', `Gemeten ${(this.attached.massKg / 1000).toFixed(1)} t — vrachtbrief zegt ${(this.attached.type.massKg / 1000).toFixed(1)} t`);
+      if (!this.trueWeightNoted) {
+        this.trueWeightNoted = true;
+        this.events.push({ type: 'surprise', text: `De lastmeting zegt ${(this.attached.massKg / 1000).toFixed(1).replace('.', ',')} t — dat is meer dan op de vrachtbrief staat. Controleer je lastdiagram.` });
+      }
+    }
+    if (this.stormStart >= 0 && this.wind.speed > 12) W.raise('storm', this.attached ? 'critical' : 'caution', `Storm op komst: ${this.wind.speed.toFixed(1)} m/s — last neerzetten en de kraan stormklaar maken`);
+    if (this.otherCrane) {
+      const d = this.otherCraneDistance();
+      if (d < 2.5) {
+        W.raise('otherCrane', 'critical', `Andere torenkraan dichtbij: ${d.toFixed(1)} m — stoppen!`);
+        if (d < 1 && !this.otherCraneLatched) {
+          this.otherCraneLatched = true;
+          this.metrics.collisions++;
+          this.metrics.safetyViolations++;
+          if (this.difficulty.strictOutriggers) this.fail('Aanvaring met de andere torenkraan.');
+        }
+      } else if (d > 4) this.otherCraneLatched = false;
+    }
+    if (req.personnel && this.attached) {
+      if (lifted && this.loadPct > 50) W.raise('personnel', 'critical', `Personen in de werkbak: max. 50 % belasting (nu ${Math.round(this.loadPct)} %)`);
+      if (lifted && (this.loadPct > 55 || this.swayDeg > 4) && !this.personnelLatched) {
+        this.personnelLatched = true;
+        this.metrics.safetyViolations++;
+        if (this.difficulty.strictOutriggers) this.fail(this.loadPct > 55 ? 'Personen gehesen boven 50 % van het lastdiagram.' : 'De werkbak slingerde te veel met personen erin.');
+      }
+    }
     if (this.time < this.zoneReadyAt) W.raise('zoneHold', 'info', `Afzetplek nog niet vrij — wachten (nog ${Math.ceil(this.zoneReadyAt - this.time)} s)`);
     if (this.attached && this.rig?.choice) {
       const rig = this.rig;
@@ -1375,6 +1568,24 @@ export class Simulation {
     if (this.placementHint && !this.placementHint.valid && this.attached && !lifted && this.rope.slack) {
       W.raise('landing', 'caution', `Onjuiste landingspositie: ${this.placementHint.reasons[0]}`);
     }
+  }
+
+  /** Kleinste afstand (m) van jouw kabel, haak, last en giekkop tot de giek van de andere torenkraan. */
+  otherCraneDistance(): number {
+    if (!this.otherCrane) return Infinity;
+    const segs = this.otherCrane.jibSegments();
+    const pts: Vec3[] = [this.geom.tip, this.ropeAttachPoint()];
+    if (this.attached) {
+      const bb = bodyBounds(this.attached.cb.body);
+      pts.push({ x: (bb.minX + bb.maxX) / 2, y: bb.maxY, z: (bb.minZ + bb.maxZ) / 2 });
+    }
+    // de kabel in stappen
+    const t = this.geom.tip;
+    const a = this.ropeAttachPoint();
+    for (let i = 1; i < 6; i++) pts.push({ x: t.x + ((a.x - t.x) * i) / 6, y: t.y + ((a.y - t.y) * i) / 6, z: t.z + ((a.z - t.z) * i) / 6 });
+    let best = Infinity;
+    for (const p of pts) for (const j of segs) best = Math.min(best, distToSegment(p, j.a, j.b));
+    return best;
   }
 
   /** Actieve taken bepalen en voortgang controleren. */
@@ -1421,6 +1632,13 @@ export class Simulation {
             ok = true;
           }
           break;
+        case 'park': {
+          const gb = this.spec.gb;
+          if (this.attached) break;
+          if (this.spec.cfg.kind === 'tower') ok = this.crane.trolley <= (gb.trolleyMin ?? 0) + 3 && this.crane.ropeLength <= gb.ropeMin + 3;
+          else ok = this.crane.boomAngle <= (gb.boomAngleMinDeg + 8) * DEG && this.crane.ropeLength <= gb.ropeMin + 4 && (this.spec.cfg.kind !== 'telescopic' || this.crane.boomLength <= gb.boomMin + 2);
+          break;
+        }
         case 'stow': {
           const gb = this.spec.gb;
           if (this.spec.cfg.kind === 'tower') ok = this.crane.trolley <= (gb.trolleyMin ?? 0) + 1 && this.crane.ropeLength <= gb.ropeMin + 2;
@@ -1433,7 +1651,7 @@ export class Simulation {
           if (!l || !zone || l.status === 'consumed') break;
           if (d.hold) {
             // in de lucht stil houden tot de monteurs het deel hebben vastgezet: de kraan draagt het gewicht
-            const held = l === this.attached && this.tensionF > l.type.massKg * GRAVITY * 0.6;
+            const held = l === this.attached && this.tensionF > l.massKg * GRAVITY * 0.6;
             const pc = checkPlacement(l.cb.body, zone, held, 0.12, true);
             if (l === this.attached || this.placementHint === null) this.placementHint = pc;
             if (pc.valid) {
@@ -1441,17 +1659,19 @@ export class Simulation {
               if (t.hold >= d.hold) {
                 ok = true;
                 this.metrics.placementErrors.push(pc.error);
-                this.detachLoad(true);
-                l.status = 'placed';
-                this.applyEffect(l, d.effect);
-                this.events.push({ type: 'placed', loadId: l.id });
+                if (!d.keep) {
+                  this.detachLoad(true);
+                  l.status = 'placed';
+                  this.applyEffect(l, d.effect);
+                  this.events.push({ type: 'placed', loadId: l.id });
+                }
               }
             } else t.hold = 0;
             break;
           }
           const supported = l.cb.supports.size > 0 || l.cb.body.sleeping;
           const pc = checkPlacement(l.cb.body, zone, supported && this.validSupport(l, zone));
-          const slackEnough = l !== this.attached || this.tensionF < l.type.massKg * GRAVITY * 0.15;
+          const slackEnough = l !== this.attached || this.tensionF < l.massKg * GRAVITY * 0.15;
           if (!slackEnough && pc.valid) pc.reasons.push('kabel nog belast — vier de kabel');
           const ready = this.time >= this.zoneReadyAt;
           if (!ready && pc.valid) pc.reasons.push(`afzetplek nog niet vrij (nog ${Math.ceil(this.zoneReadyAt - this.time)} s)`);
@@ -1506,6 +1726,13 @@ export class Simulation {
   private applyEffect(l: LoadRuntime, effect: PlaceEffect | undefined): void {
     if (!effect) return;
     if (effect.type === 'addCounterweight') this.crane.extraCounterweightT += effect.massT;
+    if (effect.type === 'fix') {
+      const b = l.cb.body;
+      b.vel.x = b.vel.y = b.vel.z = 0;
+      b.omega.x = b.omega.y = b.omega.z = 0;
+      b.angVel = 0;
+      b.frozen = true;
+    }
     if (effect.type === 'towerPart' && this.assembly) {
       const b = this.assembly.build;
       switch (effect.part) {
@@ -1525,7 +1752,7 @@ export class Simulation {
           b.jib = true;
           break;
         case 'ballast':
-          b.ballast.push({ x: l.cb.body.pos.x, massT: l.type.massKg / 1000 });
+          b.ballast.push({ x: l.cb.body.pos.x, massT: l.massKg / 1000 });
           break;
       }
       this.events.push({ type: 'towerPart', part: effect.part });
@@ -1584,7 +1811,7 @@ export class Simulation {
     return this.tensionF / GRAVITY / 1000;
   }
 
-  /** Massa van de aangeslagen last (t), zonder haak. */
+  /** Massa van de aangeslagen last volgens de vrachtbrief (t), zonder haak. */
   attachedMassT(): number {
     return this.attached ? this.attached.type.massKg / 1000 : 0;
   }
@@ -1592,6 +1819,20 @@ export class Simulation {
   get ropeBody(): RigidBody | null {
     return this.world.ropeBody?.body ?? null;
   }
+}
+
+/** Alle bewegingen op halve snelheid (personen in de werkbak). */
+function halfSpeed(i: CraneInput): CraneInput {
+  return { ...i, luff: i.luff * 0.5, slew: i.slew * 0.5, hoist: i.hoist * 0.5, tele: i.tele * 0.5, trolley: i.trolley * 0.5, knuckle: i.knuckle * 0.5, knuckleTele: i.knuckleTele * 0.5, drive: i.drive * 0.5 };
+}
+
+function distToSegment(p: Vec3, a: Vec3, b: Vec3): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dz = b.z - a.z;
+  const L2 = dx * dx + dy * dy + dz * dz;
+  const t = L2 > 0 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy + (p.z - a.z) * dz) / L2, 0, 1) : 0;
+  return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t, p.z - a.z - dz * t);
 }
 
 /** Breedte van het haakblok bij een bepaalde haakmassa. */
@@ -1616,6 +1857,8 @@ export function taskLabel(t: TaskDef, m: MissionDef): string {
       return t.label ?? 'Kraan in transportstand zetten';
     case 'switchCrane':
       return t.label ?? 'Overstappen naar de missiekraan';
+    case 'park':
+      return t.label ?? 'Kraan stormklaar parkeren';
   }
 }
 

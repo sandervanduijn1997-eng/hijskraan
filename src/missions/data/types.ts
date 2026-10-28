@@ -75,6 +75,10 @@ export interface LoadSpawn {
   angleDeg?: number;
   /** Al aangeslagen bij de start. */
   attached?: boolean;
+  /** Werkelijk gewicht ten opzichte van de vrachtbrief (1,15 = 15 % zwaarder dan opgegeven). */
+  massFactor?: number;
+  /** Vastgezogen of vastgevroren: zoveel ton extra trekkracht voordat de last loskomt (met een ruk). */
+  stuckT?: number;
 }
 
 /** Onderdelen van een torenkraan die met de hulpkraan worden gemonteerd. */
@@ -84,6 +88,8 @@ export type TowerPartKind = 'mast' | 'slewingUnit' | 'towerHead' | 'counterJib' 
 export type PlaceEffect =
   | { type: 'addCounterweight'; massT: number; consume: boolean }
   | { type: 'consume' }
+  /** Vastgezet waar hij hangt (glas in de sponning, wand geschoord, damwand de grond in). */
+  | { type: 'fix' }
   | { type: 'towerPart'; part: TowerPartKind };
 
 export type TaskDef =
@@ -97,13 +103,17 @@ export type TaskDef =
       inOrder?: boolean;
       /** De last moet aan de haak stil in positie worden gehouden (monteurs pinnen hem vast); geen ondergrond nodig. */
       hold?: number;
+      /** Na het vasthouden blijft de last aan de haak (kubel leeggestort, werkbak terug). */
+      keep?: boolean;
     }
   | { type: 'drive'; x0: number; x1: number; label: string }
   | { type: 'outriggers'; label?: string }
   | { type: 'setup'; label?: string }
   | { type: 'stow'; label?: string }
   /** Overstappen van de hulpkraan naar de (gemonteerde) missiekraan. */
-  | { type: 'switchCrane'; label?: string };
+  | { type: 'switchCrane'; label?: string }
+  /** Stormklaar parkeren: geen last, haak omhoog, loopkat binnen / giek neer. */
+  | { type: 'park'; label?: string };
 
 /** Montage van een torenkraan met een mobiele hulpkraan die de speler zelf bedient. */
 export interface TowerAssemblyDef {
@@ -131,6 +141,45 @@ export interface MissionRequirements {
   minGroundFactor?: number;
   /** Vereist contragewicht (index) of giekoptie (index) vanuit de planning. */
   minCounterweightIndex?: number;
+  /** Personen in een werkbak: hooguit 50 % van het lastdiagram, halve snelheid, geen slingering. */
+  personnel?: boolean;
+}
+
+/** Opkomende storm: de wind neemt toe tot `to` m/s in `over` s, vanaf `at` s of na een aantal afgezette lasten. */
+export interface WindRampDef {
+  to: number;
+  over: number;
+  at?: number;
+  afterPlaced?: number;
+  text: string;
+}
+
+/**
+ * Kraan op een ponton: deining (op en neer), rollen met de golven en slagzij door het lastmoment.
+ * Een passerend schip geeft op `waveAt` s een paar flinke golven.
+ */
+export interface CraneMotionDef {
+  heave: number;
+  roll: number;
+  period: number;
+  /** Slagzij in graden per 100 tm lastmoment. */
+  heelPer100Tm: number;
+  waveAt?: number;
+}
+
+/** Een tweede torenkraan op de bouwplaats die zelf draait (AI); zijn giek mag je niet raken. */
+export interface OtherCraneDef {
+  craneId: CraneId;
+  x: number;
+  z: number;
+  /** Loopkatpositie (m). */
+  trolley?: number;
+  /** Draaien tussen twee standen (graden) met deze snelheid (graden/s). */
+  fromDeg: number;
+  toDeg: number;
+  speedDeg: number;
+  /** Wachttijd aan elk einde (s). */
+  pause: number;
 }
 
 export interface PlanningOptions {
@@ -180,6 +229,16 @@ export interface MissionDef {
   surprise?: SurpriseDef | null;
   /** Torenkraan staat er al; in de planning kan de speler kiezen voor zelf opbouwen (bonus-XP). */
   assemblyOptional?: boolean;
+  /** Opkomende storm tijdens de opdracht. */
+  windRamp?: WindRampDef;
+  /** Water (alleen visueel): x-bereiken. */
+  water?: [number, number][];
+  /** De kraan staat op een ponton en beweegt met het water. */
+  craneMotion?: CraneMotionDef;
+  /** Een tweede (AI-)torenkraan die over de bouwplaats draait. */
+  otherCrane?: OtherCraneDef;
+  /** Blind hijsen: alleen het cabinezicht, de seinman leidt je via de portofoon. */
+  cameraLock?: 'cab';
   /** Kraanmatten bij de start (standaard houten matten 1,2 m). */
   mats?: MatId;
   /** Leven op de bouwplaats; standaard volgens de omgeving. workers: 0 = niemand. */

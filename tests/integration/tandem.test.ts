@@ -20,9 +20,9 @@ function attachTandem(id: string) {
 }
 
 describe('tandemhijs', () => {
-  it('hoofdstuk 9 heeft drie tandemmissies die valideren', () => {
+  it('vijf tandemmissies (hoofdstuk 9, nachtligger, kolom) die valideren', () => {
     const t = MISSIONS.filter((m) => m.tandem);
-    expect(t.length).toBe(3);
+    expect(t.length).toBe(5);
     for (const m of t) expect(validateMission(m).issues.filter((i) => i.severity === 'error')).toEqual([]);
   });
 

@@ -190,9 +190,10 @@ export function validateMission(m: MissionDef): MissionValidation {
 
   const colliders = buildColliders(m.obstacles);
   const ceilingY = Math.min(Infinity, ...m.obstacles.filter((o) => o.kind === 'ceiling').map((o) => o.y));
-  const surfaceAt = (x: number, y: number, halfW: number): boolean => {
+  // het midden (in z) moet boven het oppervlak liggen, anders kantelt de last er over de rand af
+  const surfaceAt = (x: number, y: number, halfW: number, z = 0): boolean => {
     if (Math.abs(y) < 0.02) return true;
-    return colliders.some((c) => c.landable && Math.abs(c.maxY - y) < 0.05 && x + halfW > c.minX && x - halfW < c.maxX);
+    return colliders.some((c) => c.landable && Math.abs(c.maxY - y) < 0.05 && x + halfW > c.minX && x - halfW < c.maxX && z > c.minZ && z < c.maxZ);
   };
   const overlaps = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, cs: readonly Collider[]): Collider | null => {
     for (const c of cs) {
@@ -220,16 +221,24 @@ export function validateMission(m: MissionDef): MissionValidation {
       const half = cfg.visual.carrierLength / 2;
       return Math.abs(cfg.visual.carrierHeight - l.y) < 0.05 && l.x > m.crane.x - half && l.x < m.crane.x + half;
     });
-    if (!surfaceAt(l.x, l.y, t.width / 2) && !ownDeck) err(`Last ${l.id} staat niet op een ondergrond`);
+    // gestapeld op een andere last (verkeerd geladen vrachtwagen, boomkroon op de stam) of al aan de haak
+    const onLoad = m.loads.some((o) => {
+      if (o === l) return false;
+      const ot = LOADS[o.type];
+      return Math.abs(o.y + ot.height - l.y) < 0.05 && Math.abs(o.x - l.x) < (ot.width + t.width) / 2 && Math.abs((o.z ?? 0) - z) < (ot.depth + t.depth) / 2;
+    });
+    if (!surfaceAt(l.x, l.y, t.width / 2, z) && !ownDeck && !onLoad && !l.attached) err(`Last ${l.id} staat niet op een ondergrond`);
   }
   for (const zn of m.zones) {
     const task = m.tasks.find((t) => t.type === 'deliver' && t.zoneId === zn.id);
     // montageposities liggen op de torenkraan in aanbouw zelf
     if (task && isAssemblyTask(task)) continue;
+    // in de lucht vastgehouden (schoren, glas zetten, damwand trillen, storten): geen ondergrond nodig
+    if (m.tasks.every((t) => t.type !== 'deliver' || t.zoneId !== zn.id || t.hold)) continue;
     const lt = task && task.type === 'deliver' ? LOADS[m.loads.find((l) => l.id === task.loadId)!.type] : null;
     const stacked = m.tasks.some((t) => t.type === 'deliver' && t.zoneId === zn.id) && m.zones.some((o) => o !== zn && Math.abs(o.x - zn.x) < 0.5 && o.y < zn.y);
     const ownDeck = m.craneOptions.some((cid) => Math.abs(CRANES[cid].visual.carrierHeight - zn.y) < 0.05);
-    if (!surfaceAt(zn.x, zn.y, lt ? lt.width / 2 : 0.1) && !stacked && !ownDeck) err(`Zone ${zn.id} ligt niet op een oppervlak`);
+    if (!surfaceAt(zn.x, zn.y, lt ? lt.width / 2 : 0.1, zn.z ?? 0) && !stacked && !ownDeck) err(`Zone ${zn.id} ligt niet op een oppervlak`);
     if (lt) {
       const zz = zn.z ?? 0;
       const hit = overlaps(zn.x - lt.width / 2, zn.x + lt.width / 2, zn.y + 0.01, zn.y + lt.height, zz - lt.depth / 2, zz + lt.depth / 2, colliders);

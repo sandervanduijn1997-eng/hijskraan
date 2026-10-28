@@ -17,7 +17,9 @@ export interface ClientDef {
 export type SurpriseDef =
   | { type: 'gust'; text: string; speed: number; duration: number }
   | { type: 'delay'; text: string; seconds: number }
-  | { type: 'change'; text: string; fromZone: string; toZone: string };
+  | { type: 'change'; text: string; fromZone: string; toZone: string }
+  /** Werkstop (gasalarm, persoon in de gevarenzone): binnen 4 s alles stil, alleen zakken mag. */
+  | { type: 'stop'; text: string; seconds: number; endText: string };
 
 /** Fictieve opdrachtgevers per omgeving. */
 const CLIENTS: Record<EnvironmentId, ClientDef[]> = {
@@ -88,7 +90,8 @@ export function withStory(m0: MissionDef): MissionDef {
   const m = withWeather(m0);
   const client = clientFor(m);
   const out: MissionDef = { ...m, client, deadline: deadlineFor(m) };
-  if (m.chapter < 2 || m.lesson || m.assembly || m.tandem || m.surprise === null) return out;
+  // een missie met een eigen verrassing (of uitdrukkelijk geen: null) houdt die
+  if (m.chapter < 2 || m.lesson || m.assembly || m.tandem || m.surprise !== undefined) return out;
   const c = client.contact;
   const firstDeliver = m.tasks.find((t) => t.type === 'deliver');
   const kind = m.number % 3;

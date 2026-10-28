@@ -17,7 +17,9 @@ export type ColliderKind =
   | 'tower'
   | 'ship'
   | 'barrier'
-  | 'crane';
+  | 'crane'
+  /** Gevarenzone zonder fysiek lichaam (veiligheidsafstand tot een hoogspanningslijn, werkvak, spoor): binnengaan is een overtreding. */
+  | 'hazard';
 
 /** Gevolg van een botsing met dit object. */
 export type HitPolicy = 'none' | 'damage' | 'fail';

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { MissionDef, ObstacleDef } from '../missions/data/types';
 import { obstacleZ } from '../missions/runtime/buildWorld';
 import { hashString, makeRng } from '../utils/math';
-import { box, boxMinMax, cylinder, mat, placeBetween, shadeHex, trussUnit } from './kit';
+import { box, boxMinMax, cylinder, mat, placeBetween, placeCylinderBetween, shadeHex, trussUnit } from './kit';
 import type { EnvPalette, SkyPalette } from '../game/render/palette';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { FacadeKind } from './realism';
@@ -55,7 +55,7 @@ export class WorldModel {
       this.root.add(g);
     }
     // water
-    for (const [w0, w1] of WATER[m.id] ?? []) {
+    for (const [w0, w1] of m.water ?? WATER[m.id] ?? []) {
       const geo = new THREE.PlaneGeometry(w1 - w0, 120, Math.ceil((w1 - w0) / 3), 30);
       geo.rotateX(-Math.PI / 2);
       const wm = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: 0x1d3b4a, roughness: 0.06, metalness: 0, clearcoat: 1, transparent: true, opacity: 0.94 }));
@@ -305,6 +305,10 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
   const glassMat = glass(night);
   const concrete = surface('concrete', 0xd6d3cc);
   const block = surface('blockwall', 0xd8d4cc);
+  if (o.kind === 'hazard') {
+    buildHazard(g, o, X0, X1, Y0, Y1, z0, z1);
+    return g;
+  }
   switch (style) {
     case 'truckBed':
       add(boxMinMax(X0, X1, Y0 + 0.5, Y1 - 0.15, z0, z1, paint(0x3d4249)), boxMinMax(X0, X1, Y1 - 0.15, Y1, z0, z1, surface('steelplate', 0x8a7f72, { metal: 0.5 })));
@@ -469,6 +473,53 @@ export function buildObstacle(o: ObstacleDef, night: boolean): THREE.Group {
       break;
   }
   return g;
+}
+
+/**
+ * Gevarenzone: een doorzichtig rood vak met rode randen (de veiligheidsafstand), met wat er de reden van is:
+ * een hoogspanningslijn met masten en draden, spoorstaven, of alleen het afgezette vak.
+ */
+function buildHazard(g: THREE.Group, o: ObstacleDef, X0: number, X1: number, Y0: number, Y1: number, z0: number, z1: number): void {
+  const fill = boxMinMax(X0, X1, Y0, Y1, z0, z1, mat(0xe02020, { transparent: 0.1, emissive: 0x300000 }));
+  fill.castShadow = fill.receiveShadow = false;
+  (fill.material as THREE.Material).depthWrite = false;
+  g.add(fill);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(X1 - X0, Y1 - Y0, z1 - z0)), new THREE.LineBasicMaterial({ color: 0xff3030, transparent: true, opacity: 0.7 }));
+  edges.position.set((X0 + X1) / 2, (Y0 + Y1) / 2, (z0 + z1) / 2);
+  g.add(edges);
+  const cx = (X0 + X1) / 2;
+  const cy = (Y0 + Y1) / 2;
+  const cz = (z0 + z1) / 2;
+  if (o.style === 'powerline') {
+    // draden lopen langs de lange kant van het vak, op de middenhoogte; masten aan beide uiteinden
+    const alongX = X1 - X0 > z1 - z0;
+    const steelMat = steel(0x8d949b);
+    const wireMat = mat(0x2a2d31, { rough: 0.5 });
+    const ends = alongX ? [X0 - 2, X1 + 2] : [z0 - 2, z1 + 2];
+    for (const e of ends) {
+      const px = alongX ? e : cx;
+      const pz = alongX ? cz : e;
+      const pole = box(0.6, cy + 2, 0.6, steelMat, px, (cy + 2) / 2, pz);
+      const arm = box(alongX ? 0.3 : 5, 0.25, alongX ? 5 : 0.3, steelMat, px, cy + 0.5, pz);
+      g.add(pole, arm);
+    }
+    for (const off of [-2, 0, 2]) {
+      const a = alongX ? new THREE.Vector3(ends[0], cy + 0.5, cz + off) : new THREE.Vector3(cx + off, cy + 0.5, ends[0]);
+      const b = alongX ? new THREE.Vector3(ends[1], cy + 0.5, cz + off) : new THREE.Vector3(cx + off, cy + 0.5, ends[1]);
+      const w = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 5), wireMat);
+      placeCylinderBetween(w, a, b, 0.025);
+      g.add(w);
+    }
+  } else if (o.style === 'rail') {
+    const railMat = steel(0x6d6a66);
+    const alongX = X1 - X0 > z1 - z0;
+    for (const off of [-0.72, 0.72]) g.add(alongX ? box(X1 - X0, 0.16, 0.08, railMat, cx, 0.2, cz + off) : box(0.08, 0.16, z1 - z0, railMat, cx + off, 0.2, cz));
+    const n = Math.floor((alongX ? X1 - X0 : z1 - z0) / 0.6);
+    for (let i = 0; i < n; i++) {
+      const t = (alongX ? X0 : z0) + 0.3 + i * 0.6;
+      g.add(alongX ? box(0.25, 0.12, 2.6, 0x5a4a3a, t, 0.06, cz) : box(2.6, 0.12, 0.25, 0x5a4a3a, cx, 0.06, t));
+    }
+  }
 }
 
 /** Doelzone: transparant vak op het oppervlak met omkaderde "spooklast". */

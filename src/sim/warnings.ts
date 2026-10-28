@@ -30,7 +30,14 @@ export type WarningId =
   | 'order'
   | 'setup'
   | 'outriggerObstacle'
-  | 'driveBlocked';
+  | 'driveBlocked'
+  | 'hazard'
+  | 'workStop'
+  | 'trueWeight'
+  | 'stuck'
+  | 'storm'
+  | 'otherCrane'
+  | 'personnel';
 
 export interface Warning {
   id: WarningId;
@@ -70,6 +77,13 @@ const PRIORITY: Record<WarningId, number> = {
   order: 38,
   driveBlocked: 30,
   setup: 20,
+  hazard: 98,
+  workStop: 96,
+  trueWeight: 64,
+  stuck: 77,
+  storm: 84,
+  otherCrane: 93,
+  personnel: 89,
 };
 
 /**

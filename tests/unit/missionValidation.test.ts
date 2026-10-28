@@ -7,12 +7,13 @@ import { emptyInput } from '../../src/cranes/controllers/craneInput';
 import { CHALLENGES, challengeMission, practiceMission } from '../../src/missions/data/challenges';
 
 describe('veertig missies als data', () => {
-  it('precies 43 missies, genummerd 1..43, verdeeld over 9 hoofdstukken', () => {
-    expect(MISSIONS.length).toBe(43);
-    expect(MISSIONS.map((m) => m.number)).toEqual(Array.from({ length: 43 }, (_, i) => i + 1));
-    expect(new Set(MISSIONS.map((m) => m.id)).size).toBe(43);
-    expect(CHAPTERS.length).toBe(9);
-    for (const ch of CHAPTERS) expect(MISSIONS.filter((m) => m.chapter === ch.number).length).toBe(ch.number === 9 ? 3 : 5);
+  it('precies 73 missies, genummerd 1..73, verdeeld over 14 hoofdstukken', () => {
+    expect(MISSIONS.length).toBe(73);
+    expect(MISSIONS.map((m) => m.number)).toEqual(Array.from({ length: 73 }, (_, i) => i + 1));
+    expect(new Set(MISSIONS.map((m) => m.id)).size).toBe(73);
+    expect(CHAPTERS.length).toBe(14);
+    const COUNT: Record<number, number> = { 9: 3, 10: 8, 11: 5, 12: 5, 13: 6, 14: 6 };
+    for (const ch of CHAPTERS) expect(MISSIONS.filter((m) => m.chapter === ch.number).length).toBe(COUNT[ch.number] ?? 5);
   });
 
   for (const m of MISSIONS) {

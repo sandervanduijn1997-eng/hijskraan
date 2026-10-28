@@ -317,13 +317,13 @@ export class Bot {
         yield* this.deployOutriggers();
       } else if (task.type === 'deliver') {
         if (needOutriggers() && sim.support.mode !== 'outriggers') yield* this.deployOutriggers();
-        if (task.effect?.type === 'towerPart') yield* this.mount3D(task);
+        if (task.effect?.type === 'towerPart' || task.hold) yield* this.mount3D(task);
         else if (sim.mission.tandem?.loadId === task.loadId) yield* this.tandemLift(task);
         else yield* this.deliver(task);
       } else if (task.type === 'switchCrane') {
         this.phase = 'overstappen';
         while ((sim.tasks[idx].status as string) !== 'done') yield emptyInput();
-      } else if (task.type === 'stow') {
+      } else if (task.type === 'stow' || task.type === 'park') {
         this.phase = 'transportstand';
         // hulpkraan bij een torenmontage: eerst van de toren weg naar voren zwenken, dan pas de giek laten zakken
         if (sim.assisting) {
@@ -648,8 +648,21 @@ export class Bot {
   /** Tip naar boven (x, z) op hoogte tipY (telescoopkraan). Geeft true als de stand bereikt is. */
   private tipTo3D(x: number, z: number, tipY: number, inp: CraneInput, maxCmd = 0.7): boolean {
     const p = this.polar(x, z);
-    const ik = this.ikDeflected(p.u, tipY);
     let err = wrapAngle(p.a - this.sim.crane.slew);
+    if (this.sim.spec.cfg.kind === 'tower') {
+      // torenkraan: de straal is de loopkat, de hoogte ligt vast
+      inp.slew = this.servo('slew', err, maxCmd, 0.0004);
+      const slewOk = Math.abs(err) < 0.0015 && Math.abs(this.sim.crane.vel.slew) < 0.003;
+      return this.drive({ trolley: p.u }, inp, maxCmd) && slewOk;
+    }
+    if (this.sim.spec.cfg.kind === 'lattice') {
+      // vaste gieklengte: de straal bepaalt de giekhoek, de hoogte volgt
+      inp.slew = this.servo('slew', err, maxCmd, 0.0004);
+      const slewOk = Math.abs(err) < 0.0015 && Math.abs(this.sim.crane.vel.slew) < 0.003;
+      const t = this.solve(p.u, 0);
+      return (t ? this.drive(t, inp, maxCmd) : false) && slewOk;
+    }
+    const ik = this.ikDeflected(p.u, tipY);
     // niet met de giek over de toren in aanbouw zwenken: dan de andere kant om (achterlangs)
     const asm = this.sim.assembly;
     if (asm && !asm.switched) {
@@ -703,7 +716,7 @@ export class Bot {
     const hp0 = sim.hookPoint();
     const emptyClear = Math.max(sp.y + 0.8, this.top3D(hp0.x, hp0.z, sp.x, sp.z, 0.5, 0.5, load) + 1.5);
     this.phase = `${load.id}: naar de last`;
-    for (let k = 0; k < 60 * 120; k++) {
+    for (let k = 0; k < 60 * 120 && sim.attached !== load; k++) {
       const i = emptyInput();
       const tipY = emptyClear + hookH + ropeMin + 1;
       const hookOk = this.hoistTo(Math.min(emptyClear, sim.geom.tipHeight - ropeMin - hookH - 0.3), i);
@@ -794,6 +807,11 @@ export class Bot {
       this.tipTo3D(zone.x - offX, zz - offZ, sim.geom.tipHeight, i, 0.25);
       const above = bc.y - zone.y;
       if (task.hold) {
+        // tijdens het zakken blijft de afwijking bijgestuurd (giekdoorbuiging verandert met de hoogte)
+        if (sim.swayDeg < 0.4 && load.cb.touching.size === 0) {
+          offX += (bc.x - zone.x) * (1 / 60 / 8);
+          offZ += (bc.z - zz) * (1 / 60 / 8);
+        }
         i.precision = Math.abs(above) < 0.6;
         i.hoist = this.servo('hoist', -above, i.precision ? 1 : 0.6, 0.01);
         if (Math.abs(above) < 0.05) i.hoist = 0;
@@ -829,10 +847,18 @@ export class Bot {
     return this.offF;
   }
 
+  private heelF = 0;
+
   private keepTipOver(x: number, inp: CraneInput): void {
     const sim = this.sim;
     if (!this.slewTo(x, inp)) return;
-    const u = Math.abs(x - sim.geom.slewX);
+    // ponton: de werkelijke straal wijkt af door slagzij; het gemiddelde (niet de golfslag) compenseren
+    if (sim.mission.craneMotion) {
+      const kin = computeGeometry(sim.spec, sim.crane);
+      const d = Math.hypot(sim.geom.tip.x - kin.slewX, sim.geom.tip.z - kin.slewZ) - Math.hypot(kin.tip.x - kin.slewX, kin.tip.z - kin.slewZ);
+      this.heelF += (d - this.heelF) * (1 / 60 / 6);
+    }
+    const u = Math.abs(x - sim.geom.slewX) - this.heelF;
     const t = this.solveNear(u);
     if (t) this.drive(t, inp, 0.5);
   }
@@ -974,6 +1000,11 @@ export function playMission(m: MissionDef, difficulty: DifficultyProfile, maxSec
   let lastPhase = '';
   let lastDmg = 0;
   for (let k = 0; k < steps && sim.outcome === 'running'; k++) {
+    // werkstop: de bot houdt alles stil tot het weer mag
+    if (sim.time < sim.workStopUntil) {
+      sim.step(emptyInput());
+      continue;
+    }
     const r = gen.next();
     sim.step(r.value ?? emptyInput());
     if (trace && (bot.phase !== lastPhase || sim.metrics.damage !== lastDmg || k % 120 === 0)) {

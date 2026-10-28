@@ -86,6 +86,8 @@ export class World3D {
   /** Geparkeerde hulpkraan met haak en kabel. */
   private parked: { model: CraneModel; hook: THREE.Group; rope: RopeMesh } | null = null;
   /** Kraan van de collega bij een tandemhijs, met haak, kabel en stroppen naar zijn einde. */
+  private otherCraneModel: CraneModel | null = null;
+  private pontoon: THREE.Mesh | null = null;
   private partnerVis: { model: CraneModel; hook: THREE.Group; rope: RopeMesh; slings: THREE.Mesh[] } | null = null;
   private world: WorldModel;
   private loads = new Map<string, { group: THREE.Group; inner: THREE.Group }>();
@@ -250,6 +252,12 @@ export class World3D {
       this.scene.add(model.root, hook, rope.mesh, ...slings);
       this.partnerVis = { model, hook, rope, slings };
     }
+    if (this.sim.otherCrane) {
+      const os = this.sim.otherCrane.spec;
+      // andere aannemer: een eigen kleur, zodat je hem niet voor je eigen kraan houdt
+      this.otherCraneModel = new CraneModel(os, LIVERIES.standard.make(0xd8d8d0, 0x2d6db5), night);
+      this.scene.add(this.otherCraneModel.root);
+    }
     this.weather = new Weather3D(m, this.scene, pal.indoor);
     this.scene.add(this.weather.root);
     this.visibility = visibility(m.weather, m.timeOfDay);
@@ -260,6 +268,8 @@ export class World3D {
     this.signalFigure.root.visible = false;
     this.scene.add(this.signalFigure.root);
     this.rig = new CameraRig(dom);
+    // blind hijsen: alleen het zicht vanuit de cabine
+    if (m.cameraLock === 'cab' && cfg.mode !== 'demo') this.rig.mode = 'cab';
     if (cfg.mode === 'demo') {
       this.rig.autoOrbit = 0.03;
       this.rig.pitch = 0.22;
@@ -398,6 +408,7 @@ export class World3D {
     for (const e of input.consumeEdges()) {
       if (e === 'zoomIn') this.rig.zoomBy(-1);
       else if (e === 'zoomOut') this.rig.zoomBy(1);
+      else if ((e === 'overview' || e === 'cameraReset' || e === 'cameraMode') && this.cameraLocked) continue;
       else if (e === 'overview') this.rig.mode = this.rig.mode === 'overview' ? 'follow' : 'overview';
       else if (e === 'cameraReset') this.rig.reset();
       else if (e === 'cameraMode') this.rig.cycleMode();
@@ -463,6 +474,11 @@ export class World3D {
   }
 
   /** Collega-kraan bijwerken: model, kabel, haak en twee stroppen naar zijn einde van de last. */
+  /** Blind hijsen: de camera blijft in de cabine. */
+  get cameraLocked(): boolean {
+    return this.sim.mission.cameraLock === 'cab' && this.cfg.mode !== 'demo';
+  }
+
   private updatePartner(dt: number): void {
     const v = this.partnerVis;
     const p = this.sim.partner;
@@ -537,7 +553,23 @@ export class World3D {
     const t = this.time / 1000;
     const cfg = sim.spec.cfg;
     this.crane.update(sim.crane, sim.geom, this.time);
+    if (sim.mission.craneMotion) {
+      // ponton: de hele kraan kantelt om zijn voet en deint mee
+      const px = sim.crane.baseX;
+      const r = sim.craneRoll;
+      if (!this.pontoon) {
+        const fp = sim.spec.gb.footprintOutriggers ?? sim.spec.gb.footprintRetracted;
+        this.pontoon = new THREE.Mesh(new THREE.BoxGeometry(fp.a * 2 + 8, 1.6, fp.b * 2 + 6), new THREE.MeshStandardMaterial({ color: 0x4a4f55, roughness: 0.8, metalness: 0.3 }));
+        this.pontoon.position.set(sim.crane.baseX, -0.75, 0);
+        this.pontoon.receiveShadow = true;
+        this.crane.root.add(this.pontoon);
+      }
+      this.crane.root.rotation.z = r;
+      this.crane.root.position.set(px - px * Math.cos(r), -px * Math.sin(r) + sim.craneHeave, 0);
+    }
     this.updatePartner(dt);
+    const oc = sim.otherCrane;
+    if (this.otherCraneModel && oc) this.otherCraneModel.update(oc.state, oc.geom, this.time);
     if (this.tower && this.erection && sim.assembly) this.tower.update(this.erection.state, this.erection.geom, this.time, sim.assembly.build);
     if (this.parked && sim.parked) {
       const pk = sim.parked;
