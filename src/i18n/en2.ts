@@ -87,7 +87,7 @@ export default {
   'Hijsbalk 60 t': 'Spreader beam 60 t',
   'Hijsen': 'Hoist',
   'Hijsen, vieren en stoppen.': 'Hoisting, lowering and stopping.',
-  'Hijsen: {0} · totaal gehesen: {1} t · speeltijd: {2} min · sterren: {3}/120': 'Lifts: {0} · total lifted: {1} t · play time: {2} min · stars: {3}/120',
+  'Hijsen: {0} · totaal gehesen: {1} t · speeltijd: {2} min · sterren: {3}/{4}': 'Lifts: {0} · total lifted: {1} t · play time: {2} min · stars: {3}/{4}',
   'Hijsjuk 250 t': 'Lifting yoke 250 t',
   'Hijsplan maken.': 'Making a lift plan.',
   'Hijsplan: maximaal {0} % belasting': 'Lift plan: maximum {0} % load',

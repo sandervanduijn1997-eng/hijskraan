@@ -87,7 +87,7 @@ export default {
   'Hijsbalk 60 t': 'Traverse 60 t',
   'Hijsen': 'Heben',
   'Hijsen, vieren en stoppen.': 'Heben, Senken und Anhalten.',
-  'Hijsen: {0} · totaal gehesen: {1} t · speeltijd: {2} min · sterren: {3}/120': 'Hübe: {0} · insgesamt gehoben: {1} t · Spielzeit: {2} min · Sterne: {3}/120',
+  'Hijsen: {0} · totaal gehesen: {1} t · speeltijd: {2} min · sterren: {3}/{4}': 'Hübe: {0} · insgesamt gehoben: {1} t · Spielzeit: {2} min · Sterne: {3}/{4}',
   'Hijsjuk 250 t': 'Hubjoch 250 t',
   'Hijsplan maken.': 'Einen Hubplan erstellen.',
   'Hijsplan: maximaal {0} % belasting': 'Hubplan: maximal {0} % Auslastung',

@@ -539,7 +539,7 @@ export class App {
           h('button', { class: 'btn', onclick: () => this.showHelp(false) }, 'Bediening & help'),
           h('button', { class: 'btn ghost', onclick: () => this.toggleFullscreen() }, 'Volledig scherm', h('small', null, 'F11')),
         ),
-        h('div', { class: 'profile-strip' }, h('span', null, 'Saldo ', h('b', null, formatMoney(this.save.money))), h('span', null, `${lv.title} `, h('b', null, `niv. ${lv.level}`)), h('span', null, 'Sterren ', h('b', null, `${totalStars(this.save)}/120`))),
+        h('div', { class: 'profile-strip' }, h('span', null, 'Saldo ', h('b', null, formatMoney(this.save.money))), h('span', null, `${lv.title} `, h('b', null, `niv. ${lv.level}`)), h('span', null, 'Sterren ', h('b', null, `${totalStars(this.save)}/${MISSIONS.length * 3}`))),
         h('div', { class: 'version' }, 'v0.1.0 · fictieve machines, spelwaarden'),
       ),
     );
@@ -965,7 +965,7 @@ export class App {
         h('div', { class: 'panel', style: 'padding:1em 1.2em;margin-bottom:1em' },
           h('h3', { style: 'margin-top:0' }, `${lv.title} — niveau ${lv.level}`),
           h('div', { class: 'lmi' }, h('div', { class: 'bar' }, h('div', { class: 'fill c', style: `width:${((this.save.xp - lv.xpForLevel) / Math.max(1, lv.xpForNext - lv.xpForLevel)) * 100}%` })), h('div', { class: 'row2' }, h('span', null, `${this.save.xp} XP`), h('span', null, `volgend niveau ${lv.xpForNext} XP`))),
-          h('p', { class: 'muted' }, `Hijsen: ${st.lifts} · totaal gehesen: ${st.tonnage.toFixed(1)} t · speeltijd: ${Math.round(st.playTime / 60)} min · sterren: ${totalStars(this.save)}/120`),
+          h('p', { class: 'muted' }, `Hijsen: ${st.lifts} · totaal gehesen: ${st.tonnage.toFixed(1)} t · speeltijd: ${Math.round(st.playTime / 60)} min · sterren: ${totalStars(this.save)}/${MISSIONS.length * 3}`),
           this.save.certificates.length ? h('p', null, 'Certificaten: ', this.save.certificates.join(', ')) : null,
         ),
         lic,
