@@ -3,3 +3,6 @@ dist
 test-results
 playwright-report
 .tools/
+# referentie-export (npm run export:reference); alleen het manifest gaat mee als vastgelegde referentie
+reference/*
+!reference/manifest.json
