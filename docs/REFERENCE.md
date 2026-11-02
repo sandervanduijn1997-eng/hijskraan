@@ -4,7 +4,7 @@ Fase 0 van [UNREAL_PLAN.md](UNREAL_PLAN.md): de TypeScript-versie legt vast hoe 
 
 ```bash
 npm run export:reference                     # alles (enkele minuten)
-npm run export:reference -- data,units       # zonder missies (seconden)
+npm run export:reference -- data,units,career # zonder missies (seconden)
 npm run export:reference -- missions m01,m05 # alleen deze missies
 ```
 
@@ -42,6 +42,7 @@ Hiermee test je de port per module, lang voordat de hele simulatie draait.
 | `powertrain.json` | hydrauliekvraag, pomp, toerental, drukken | relatief 1e-9 |
 | `wind.json` | `sampleWind` voor elke windinstelling uit de missies, 60 s | relatief 1e-9 |
 | `physics-scenarios.json.gz` | 8 korte scenario's met `PhysicsWorld`: per stap positie, quaternion, snelheden, kabelkracht | zie hieronder |
+| `career.json.gz` | 400 willekeurige savebestanden met missie, kraan, score, offerte en afloop → `computePayout`, `applyMissionResult`, `settleJob`/`applySettlement`, offertekansen, kopen/upgraden/repareren (met het savebestand ná elke mutatie), ontgrendelingen, `nextMission`, `levelFor`; `upgradePrice`, `formatMoney`; 200 beoordelingen (`rate`) per uitdaging | exact |
 
 Alle steekproeven komen uit een vaste pseudo-random reeks; een nieuwe export trekt dezelfde waarden.
 
@@ -68,7 +69,9 @@ De export speelt elke opname zelf ook opnieuw af in een verse `Simulation` en st
 2. Daarna drift rapporteren: hoe ver liggen haak en lasten uit elkaar.
 3. Eindoordeel op de afloop: zelfde `outcome`, zelfde aantal sterren, lasten op dezelfde plek binnen de tolerantie van hun zone.
 
-Wil je bit voor bit gelijk blijven, gebruik dan in C++ dezelfde wiskundebibliotheek als V8 (fdlibm-afgeleid) in plaats van de MSVC-CRT.
+Wil je bit voor bit gelijk blijven, gebruik dan in C++ dezelfde wiskundebibliotheek als V8 (fdlibm-afgeleid) in plaats van de MSVC-CRT. De C++-port doet dat en is nu op alle 82 sporen bit voor bit gelijk.
+
+Eén uitzondering: `Math.pow` is in V8 géén fdlibm maar de pow van het platform-CRT, en die verschilt per OS en zelfs per CRT-variant in het laatste bit. Gebruik in de simulatie daarom `detPow` uit `src/utils/math.ts` (`exp(y·ln x)`, beide fdlibm) en nooit `Math.pow` of `**`.
 
 ## Bekende afwijkingen in de referentie
 

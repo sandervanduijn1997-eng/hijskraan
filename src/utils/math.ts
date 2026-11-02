@@ -17,6 +17,12 @@ export const RAD = 180 / Math.PI;
 export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const sign = (v: number): number => (v > 0 ? 1 : v < 0 ? -1 : 0);
+/**
+ * Deterministische macht x^y (x > 0) als exp(y·ln x). Math.pow is in V8 de pow van het platform-CRT
+ * en verschilt per OS/build in het laatste bit; Math.exp en Math.log zijn fdlibm en dus overal gelijk,
+ * zodat de C++-port (Unreal) bit voor bit hetzelfde rekent. Gebruik in de simulatie geen Math.pow of **.
+ */
+export const detPow = (x: number, y: number): number => Math.exp(y * Math.log(x));
 export const approach = (current: number, target: number, maxDelta: number): number =>
   current < target ? Math.min(current + maxDelta, target) : Math.max(current - maxDelta, target);
 

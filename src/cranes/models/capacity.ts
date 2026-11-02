@@ -2,7 +2,7 @@ import type { Footprint, StabilityMasses } from '../../physics/stability/stabili
 
 import { CHART_TIPPING_FRACTION, tippingLoadT } from '../../physics/stability/stability';
 import type { LoadChart } from '../../physics/stability/loadChart';
-import { DEG, clamp, lerp } from '../../utils/math';
+import { DEG, clamp, detPow, lerp } from '../../utils/math';
 import type { ResolvedCrane } from './craneSpec';
 import type { CraneState } from './craneState';
 import { computeGeometry } from './kinematics';
@@ -51,8 +51,8 @@ export function structuralCapacityT(spec: ResolvedCrane, radius: number, boomLen
   if (st.momentTm !== undefined) {
     return Math.min(gb.maxCapacityT, st.momentTm / Math.max(radius, st.minRadius));
   }
-  const rf = Math.pow(Math.min(1, st.minRadius / Math.max(radius, 0.01)), st.p);
-  const lf = Math.pow(gb.boomMin / Math.max(boomLength, gb.boomMin), st.q);
+  const rf = detPow(Math.min(1, st.minRadius / Math.max(radius, 0.01)), st.p);
+  const lf = detPow(gb.boomMin / Math.max(boomLength, gb.boomMin), st.q);
   return gb.maxCapacityT * rf * lf;
 }
 
