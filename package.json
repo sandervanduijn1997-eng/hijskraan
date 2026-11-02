@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "validate:missions": "vitest run tests/unit/missionValidation.test.ts"
+    "validate:missions": "vitest run tests/unit/missionValidation.test.ts",
+    "export:reference": "vite-node scripts/export-reference.ts"
   },
   "dependencies": {
     "@types/three": "0.170.0",
