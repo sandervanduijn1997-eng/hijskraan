@@ -291,4 +291,7 @@ export default {
   "Kantbescherming onder de stroppen": "Kantenschutz unter den Schlingen",
   "Stuurlijnen aan de last (aanslagers houden hem tegen draaien)": "Leitseile an der Last (Anschläger verhindern das Drehen)",
   "Lastmeter in de haak": "Lastmesser im Haken",
+  "Voortgang": "Fortschritt",
+  "Save exporteren": "Spielstand exportieren",
+  "Je voortgang en instellingen als bestand, om te bewaren of op een andere computer verder te spelen.": "Dein Fortschritt und deine Einstellungen als Datei, zum Aufbewahren oder um auf einem anderen Computer weiterzuspielen.",
 } as Record<string, string>;

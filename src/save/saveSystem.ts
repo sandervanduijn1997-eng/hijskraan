@@ -1,5 +1,6 @@
 import type { Lang } from '../i18n/i18n';
 import { CRANE_IDS } from '../cranes/config/cranes';
+import { UPGRADES } from '../cranes/config/upgrades';
 import type { CraneId, LicenseId, UpgradeId } from '../cranes/config/types';
 import type { DifficultyId } from '../sim/difficulty';
 import type { AnalogSettings } from '../game/input/analog';
@@ -178,7 +179,8 @@ export function sanitizeSave(raw: unknown): { data: SaveData; repaired: boolean 
   out.ownedCranes = owned.length ? Array.from(new Set(owned)) : def.ownedCranes;
   if (isObj(d.craneCondition)) for (const c of CRANE_IDS) if (d.craneCondition[c] !== undefined) out.craneCondition[c] = num(d.craneCondition[c], 1, 0, 1);
   for (const c of out.ownedCranes) if (out.craneCondition[c] === undefined) out.craneCondition[c] = 1;
-  if (isObj(d.upgrades)) for (const c of CRANE_IDS) if (d.upgrades[c] !== undefined) out.upgrades[c] = strArr(d.upgrades[c]) as UpgradeId[];
+  // onbekende upgrades vallen weg (UPGRADES[id] zou undefined zijn)
+  if (isObj(d.upgrades)) for (const c of CRANE_IDS) if (d.upgrades[c] !== undefined) out.upgrades[c] = strArr(d.upgrades[c]).filter((u): u is UpgradeId => Object.hasOwn(UPGRADES, u));
   out.liveries = strArr(d.liveries).length ? strArr(d.liveries) : def.liveries;
   out.activeLivery = typeof d.activeLivery === 'string' && out.liveries.includes(d.activeLivery) ? d.activeLivery : 'standard';
   if (isObj(d.challengeBest)) for (const [k, s] of Object.entries(d.challengeBest)) out.challengeBest[k] = num(s, 0, 0, 100);
@@ -277,9 +279,14 @@ export function loadGame(storage: StorageLike): LoadResult {
   return { data, status: repaired ? 'repaired' : 'loaded' };
 }
 
+/** Het savebestand als JSON-tekst, zoals in localStorage; ook het formaat van "Save exporteren" (en van de Unreal-versie). */
+export function saveToText(data: SaveData): string {
+  return JSON.stringify({ ...data, version: SAVE_VERSION });
+}
+
 export function saveGame(storage: StorageLike, data: SaveData): boolean {
   try {
-    storage.setItem(SAVE_KEY, JSON.stringify({ ...data, version: SAVE_VERSION }));
+    storage.setItem(SAVE_KEY, saveToText(data));
     return true;
   } catch {
     return false;

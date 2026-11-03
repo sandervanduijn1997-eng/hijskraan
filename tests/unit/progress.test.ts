@@ -47,6 +47,11 @@ describe('opslaan en laden', () => {
     expect(data.settings.difficulty).toBe('normal');
   });
 
+  it('onbekende upgrades vallen weg', () => {
+    const { data } = sanitizeSave({ version: SAVE_VERSION, ownedCranes: ['at60'], upgrades: { at60: ['hoistSpeed', 'turbo', 'toString', 3], nep: ['hoistSpeed'] } });
+    expect(data.upgrades).toEqual({ at60: ['hoistSpeed'] });
+  });
+
   it('beschadigd bestand: reservekopie en nieuw profiel', () => {
     const st = new MemoryStorage();
     st.setItem(SAVE_KEY, '{niet geldig');

@@ -35,7 +35,7 @@ import { LOADS, getLoad } from '../missions/data/loads';
 import type { EnvironmentId, MissionDef, TowerPartKind } from '../missions/data/types';
 import { SCORE_LABELS, SCORE_WEIGHTS } from '../missions/runtime/scoring';
 import { validateMission } from '../missions/validation/validateMission';
-import { DEFAULT_BINDINGS, loadGame, saveGame } from '../save/saveSystem';
+import { DEFAULT_BINDINGS, loadGame, saveGame, saveToText } from '../save/saveSystem';
 import type { ActionId, SaveData, StorageLike } from '../save/saveSystem';
 import { DIFFICULTIES } from '../sim/difficulty';
 import type { DifficultyId } from '../sim/difficulty';
@@ -1081,12 +1081,32 @@ export class App {
       h('section', { class: 'panel' }, h('h3', null, 'Audio'), slider('Mastervolume', s.masterVolume, (v) => (s.masterVolume = v)), slider('Muziek', s.musicVolume, (v) => (s.musicVolume = v)), slider('Geluidseffecten', s.sfxVolume, (v) => (s.sfxVolume = v)), !audio.available ? h('p', { class: 'muted' }, 'Audio start na de eerste klik of toetsaanslag.') : null),
       h('section', { class: 'panel' }, h('h3', null, 'Gameplay & weergave'), h('label', { class: 'line' }, 'Taal / Language / Sprache', langSel), h('label', { class: 'line' }, 'Standaard moeilijkheid', diff), h('label', { class: 'line' }, 'Grafische kwaliteit', gfx), h('label', { class: 'line' }, 'Signaalgever (portofoon)', sigSel), h('p', { class: 'muted', style: 'font-size:.8em' }, 'De resolutie past zich automatisch aan voor 60 fps. Texturen wisselen bij de volgende missie.'), toggle('Camerabeweging bij zware lasten', s.cameraShake, (v) => (s.cameraShake = v)), toggle('Bedieningshints in beeld', s.showHints, (v) => (s.showHints = v)), toggle('Deeltjes (stof, rook, vonken)', s.particles, (v) => (s.particles = v)), toggle('Dieptehulp bij hijsen (loodlijn, voetafdruk, hoogte)', s.depthAid, (v) => (s.depthAid = v)), h('div', { class: 'row', style: 'margin-top:.6em' }, h('button', { class: 'btn small', onclick: () => this.toggleFullscreen() }, 'Volledig scherm'))),
       analogPanel,
+      this.savePanel(),
       this.telemetryPanel(),
       h('section', { class: 'panel' }, h('h3', null, 'Besturing'), h('p', { class: 'muted', style: 'font-size:.85em' }, 'Klik op een toets om die te wijzigen. Esc annuleert.'), binds, h('button', { class: 'btn small', style: 'margin-top:.6em', onclick: () => { s.bindings = structuredClone(DEFAULT_BINDINGS); this.input.setBindings(s.bindings); this.persist(); this.showSettings(inGame); } }, 'Standaardbesturing herstellen')),
     );
     if (inGame) {
       this.openOverlay(h('div', { class: 'screen dim' }, h('div', { class: 'dialog panel', style: 'width:min(1100px,95vw)' }, h('h2', null, 'Instellingen'), content, h('div', { class: 'row', style: 'margin-top:1em' }, h('button', { class: 'btn primary', onclick: () => { this.closeOverlay(); this.scene?.setPaused(false); this.input.enabled = true; } }, 'Hervatten')))));
     } else this.openScreen(h('div', { class: 'screen', 'data-testid': 'settings' }, this.head('Instellingen', () => this.showMainMenu()), h('div', { class: 'screen-body ui-scroll' }, content)));
+  }
+
+  /** Voortgang als bestand: hetzelfde JSON als in localStorage, zodat de Unreal-versie het kan inlezen. */
+  private savePanel(): HTMLElement {
+    const exportBtn = h('button', { class: 'btn small', 'data-testid': 'save-export' }, 'Save exporteren');
+    exportBtn.addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([saveToText(this.save)], { type: 'application/json' }));
+      a.download = 'hijskraan-save.json';
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+    return h(
+      'section',
+      { class: 'panel' },
+      h('h3', null, 'Voortgang'),
+      h('p', { class: 'muted', style: 'font-size:.85em' }, 'Je voortgang en instellingen als bestand, om te bewaren of op een andere computer verder te spelen.'),
+      h('div', { class: 'row', style: 'margin-top:.6em' }, exportBtn),
+    );
   }
 
   /** Speeltestgegevens: alleen lokaal; de speler exporteert ze zelf als JSON voor het speeltestverslag. */

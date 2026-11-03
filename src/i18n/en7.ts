@@ -291,4 +291,7 @@ export default {
   "Kantbescherming onder de stroppen": "Edge protection under the slings",
   "Stuurlijnen aan de last (aanslagers houden hem tegen draaien)": "Taglines on the load (riggers keep it from turning)",
   "Lastmeter in de haak": "Load cell in the hook",
+  "Voortgang": "Progress",
+  "Save exporteren": "Export save",
+  "Je voortgang en instellingen als bestand, om te bewaren of op een andere computer verder te spelen.": "Your progress and settings as a file, to keep or to continue on another computer.",
 } as Record<string, string>;

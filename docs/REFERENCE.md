@@ -4,7 +4,7 @@ Fase 0 van [UNREAL_PLAN.md](UNREAL_PLAN.md): de TypeScript-versie legt vast hoe 
 
 ```bash
 npm run export:reference                     # alles (enkele minuten)
-npm run export:reference -- data,datatables,units,career # zonder missies (seconden)
+npm run export:reference -- data,datatables,units,career,saves # zonder missies (seconden)
 npm run export:reference -- missions m01,m05 # alleen deze missies
 ```
 
@@ -60,6 +60,7 @@ Hiermee test je de port per module, lang voordat de hele simulatie draait.
 | `wind.json` | `sampleWind` voor elke windinstelling uit de missies, 60 s | relatief 1e-9 |
 | `physics-scenarios.json.gz` | 8 korte scenario's met `PhysicsWorld`: per stap positie, quaternion, snelheden, kabelkracht | zie hieronder |
 | `career.json.gz` | 400 willekeurige savebestanden met missie, kraan, score, offerte en afloop → `computePayout`, `applyMissionResult`, `settleJob`/`applySettlement`, offertekansen, kopen/upgraden/repareren (met het savebestand ná elke mutatie), ontgrendelingen, `nextMission`, `levelFor`; `upgradePrice`, `formatMoney`; 200 beoordelingen (`rate`) per uitdaging | exact |
+| `saves.json.gz` | 740 savebestanden als tekst uit localStorage (geldig, v1, kapotte velden, geen object, ongeldige JSON) → `loadGame()`: status en het gerepareerde savebestand; plus `craneIds` en `defaultSave` | exact |
 
 Alle steekproeven komen uit een vaste pseudo-random reeks; een nieuwe export trekt dezelfde waarden.
 
