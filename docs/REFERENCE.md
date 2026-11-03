@@ -4,7 +4,7 @@ Fase 0 van [UNREAL_PLAN.md](UNREAL_PLAN.md): de TypeScript-versie legt vast hoe 
 
 ```bash
 npm run export:reference                     # alles (enkele minuten)
-npm run export:reference -- data,units,career # zonder missies (seconden)
+npm run export:reference -- data,datatables,units,career # zonder missies (seconden)
 npm run export:reference -- missions m01,m05 # alleen deze missies
 ```
 
@@ -30,6 +30,23 @@ De uitvoer staat in `reference/` en wordt niet gecommit, behalve `reference/mani
 | `challenges.json` | per uitdaging de definitie en de gegenereerde missie. De beoordeling (`rate`) is code per `kind`; uitkomsten staan in de missiesporen |
 | `difficulties.json`, `economy.json` | moeilijkheidsprofielen, offertes en vaste bedrijfswaarden |
 | `i18n.json` | `nlKeys` (alle bronteksten), `en` en `de` |
+
+### `datatables/` — speldata als Unreal-DataTables
+
+Dezelfde speldata in het JSON-importformaat van `UDataTable` (E6): een array van rijen met `Name` als rijnaam (`scripts/reference/datatables.ts`). In hijskraan-unreal maakt de commandlet `CraneSimImportData` er assets van in `/Game/Data`.
+
+| Bestand | Rijen | Getypte kolommen | `Definition` |
+|---|---|---|---|
+| `DT_Cranes.json` | kraan-id | naam, klasse, soort, onderstel, omschrijving, prijzen, licentie | `CraneConfig` |
+| `DT_Loads.json` | last-id | naam, massa, afmetingen, stijl, kleur | lasttype |
+| `DT_Chapters.json` | `chapter01` … | nummer, titel, ondertitel, licentie, fase | — |
+| `DT_Missions.json` | missie-id | volgorde, nummer, hoofdstuk, teksten, omgeving, weer, beloning, richttijd | missie (zoals in `missions.json`) |
+| `DT_Challenges.json` | uitdaging-id | volgorde, soort, teksten, basismissie | gegenereerde missie |
+| `DT_Upgrades.json` | upgrade-id | naam, omschrijving, basisprijs, prijsfactor | — |
+| `DT_Difficulties.json` | `practice`, `normal`, `realistic` | label, omschrijving | profiel |
+| `DT_Texts.json` | `T` + FNV-1a (32 bit) van de Nederlandse tekst | `Nl`, `En`, `De` (leeg = valt terug op Nederlands), bronbestand | — |
+
+De getypte kolommen zijn voor UI en Blueprints. De simulatie leest alleen `Definition`: het object als JSON-tekst, bit voor bit gelijk aan het object in `data/`. Rijnamen zijn in Unreal FNames (hoofdletterongevoelig); de export controleert dat ze daarin uniek zijn.
 
 ### `units/` — functietabellen en fysicascenario's
 
